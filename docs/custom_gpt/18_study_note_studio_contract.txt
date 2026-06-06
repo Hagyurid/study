@@ -1,0 +1,29 @@
+# Study Note Studio 계약 v18
+
+목적:
+저장된 GPT 생성 정리본, 외부 정리본, 시험 직전 정리, 계산기 사용법 문서를 사이트에서 열어 공부하고 직접 수정한다.
+
+사이트:
+- `/static/study/index.html`
+
+지원 기능:
+- 저장된 Markdown 정리본 목록 조회
+- 키보드로 Markdown 수정
+- 이미지 삽입: Markdown 이미지로 삽입
+- 형광펜: `<mark>...</mark>`로 저장
+- 저장: updateStudyNote 호출
+- 새 문서 저장: saveStudyNote 호출
+- Markdown 다운로드
+- Word 다운로드
+- PDF 저장: 브라우저 인쇄/저장 사용
+
+수식 규칙:
+- `$...$`, `$$...$$`, `\(...\)`, `\[...\]` 유지
+- 분수는 `\frac{}{}`
+- 행렬은 `bmatrix`, `pmatrix`, `vmatrix`
+- 수식은 이미지로 변환하지 않는다.
+
+GPT 사용 규칙:
+- 정리본 생성 결과는 Markdown으로 저장한다.
+- 수정 요청 시 기존 source_id가 있으면 updateStudyNote로 교체한다.
+- 사용자가 “사이트에서 공부”라고 하면 Study Note Studio 링크를 안내한다.

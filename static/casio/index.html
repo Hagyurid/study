@@ -7,301 +7,67 @@
   <title>CASIO PRGM Studio</title>
   <style>
     :root { --bg:#0f172a; --panel:#111827; --panel2:#1f2937; --text:#e5e7eb; --muted:#9ca3af; --line:#334155; --accent:#38bdf8; --bad:#f87171; --warn:#fbbf24; --ok:#34d399; }
-    * { box-sizing: border-box; }
-    body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background:var(--bg); color:var(--text); }
+    * { box-sizing:border-box; } body { margin:0; font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; background:var(--bg); color:var(--text); }
     header { padding:16px 18px; border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
-    h1 { margin:0; font-size:20px; }
-    main { display:grid; grid-template-columns: 360px 1fr; gap:14px; padding:14px; }
-    section { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:14px; }
-    h2 { font-size:15px; margin:0 0 10px; color:#f8fafc; }
-    h3 { font-size:13px; margin:14px 0 8px; color:#cbd5e1; }
-    label { display:block; color:var(--muted); font-size:12px; margin:10px 0 4px; }
-    input, textarea, select { width:100%; border:1px solid var(--line); border-radius:10px; padding:9px 10px; background:#020617; color:var(--text); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; }
-    textarea { min-height:220px; resize:vertical; }
-    button { border:0; border-radius:10px; padding:9px 11px; margin:4px 4px 4px 0; color:#00111f; background:var(--accent); font-weight:700; cursor:pointer; }
-    button.secondary { background:#94a3b8; }
-    button.warn { background:var(--warn); }
-    button.bad { background:var(--bad); }
-    button.ok { background:var(--ok); }
-    .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
-    .grid2 { display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
-    .muted { color:var(--muted); font-size:12px; }
-    .pill { display:inline-block; padding:2px 8px; border:1px solid var(--line); border-radius:999px; color:#cbd5e1; margin:2px; font-size:12px; }
+    h1 { margin:0; font-size:20px; } h2 { font-size:15px; margin:0 0 10px; color:#f8fafc; } label { display:block; color:var(--muted); font-size:12px; margin:10px 0 4px; }
+    main { display:grid; grid-template-columns: 360px 1fr; gap:14px; padding:14px; } section { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:14px; }
+    input, textarea, select { width:100%; border:1px solid var(--line); border-radius:10px; padding:9px 10px; background:#020617; color:var(--text); font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; }
+    textarea { min-height:180px; resize:vertical; } button, a.btn { border:0; border-radius:10px; padding:9px 11px; margin:4px 4px 4px 0; color:#00111f; background:var(--accent); font-weight:800; cursor:pointer; text-decoration:none; display:inline-block; }
+    button.secondary, a.secondary { background:#94a3b8; } button.warn { background:var(--warn); } button.bad { background:var(--bad); } button.ok { background:var(--ok); }
+    .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; } .muted { color:var(--muted); font-size:12px; } .list { border:1px solid var(--line); border-radius:12px; overflow:hidden; } .item { padding:10px; border-bottom:1px solid var(--line); background:var(--panel2); } .item:last-child { border-bottom:0; }
     pre { white-space:pre-wrap; overflow:auto; background:#020617; border:1px solid var(--line); border-radius:12px; padding:12px; min-height:120px; max-height:420px; font-size:12px; }
-    .list { border:1px solid var(--line); border-radius:12px; overflow:hidden; }
-    .item { padding:9px 10px; border-bottom:1px solid var(--line); background:var(--panel2); }
-    .item:last-child { border-bottom:0; }
-    .small { font-size:11px; color:var(--muted); }
-    .status { padding:8px 10px; border-radius:10px; background:#020617; border:1px solid var(--line); margin-top:10px; color:#cbd5e1; }
-    @media (max-width: 900px) { main { grid-template-columns:1fr; } .grid2 { grid-template-columns:1fr; } }
+    .tabs button { background:#1f2937; color:#dbeafe; } .tabs button.active { background:var(--accent); color:#00111f; } .panel { display:none; } .panel.active { display:block; }
+    @media(max-width:900px){ main { grid-template-columns:1fr; } }
   </style>
 </head>
 <body>
 <header>
-  <div>
-    <h1>CASIO PRGM Studio</h1>
-    <div class="muted">Custom GPT Actions + FastAPI + SQLite + source file storage</div>
-  </div>
-  <div class="row">
-    <button onclick="saveSettings()">설정 저장</button>
-    <button class="secondary" onclick="loadProject()">프로젝트 불러오기</button>
-  </div>
+  <div><h1>CASIO PRGM Studio</h1><div class="muted">GPT가 생성한 계산기 코드 · 사용법 · 구조 해설 보기</div></div>
+  <div class="row"><a class="btn secondary" href="/">홈</a><a class="btn secondary" href="/upload">자료 업로드</a><a class="btn secondary" href="/static/solvepad/index.html">SolvePad</a><button onclick="saveSettings()">설정 저장</button></div>
 </header>
-
 <main>
   <section>
-    <h2>1. 연결 / 프로젝트</h2>
-    <label>API Base URL</label>
-    <input id="apiBase" placeholder="https://your-service.onrender.com" />
-    <label>X-Action-Key</label>
-    <input id="actionKey" type="password" placeholder="Render env ACTION_API_KEY" />
-    <label>Project ID</label>
-    <input id="projectId" placeholder="project id" />
-    <label>Edit Key</label>
-    <input id="editKey" type="password" placeholder="project edit key" />
-
-    <h3>새 프로젝트</h3>
-    <label>제목</label>
-    <input id="newTitle" placeholder="분리공정 중간고사" />
-    <label>과목</label>
-    <input id="newCourse" placeholder="Separation Process" />
-    <label>자료 요약</label>
-    <textarea id="newSummary" style="min-height:70px" placeholder="GPT가 요약한 원본 자료 요약"></textarea>
-    <button onclick="createProject()">프로젝트 생성</button>
-
-    <div id="projectBox" class="status">프로젝트 미연결</div>
+    <h2>1. 연결</h2>
+    <label>API Base URL</label><input id="apiBase" placeholder="https://study-xqe8.onrender.com" />
+    <label>Action Key</label><input id="actionKey" type="password" placeholder="Render ACTION_API_KEY" />
+    <label>과목 필터</label><input id="subject" placeholder="예: CRE" />
+    <div class="row"><button onclick="saveSettings()">저장</button><button class="secondary" onclick="listProjects()">저장 프로젝트 불러오기</button></div>
+    <div class="muted">Action Key는 이 브라우저 localStorage에만 저장됩니다.</div>
+    <h2 style="margin-top:18px">2. 저장된 계산기 프로젝트</h2>
+    <div id="projectList" class="list"><div class="item muted">목록 없음</div></div>
   </section>
-
   <section>
-    <h2>2. 원본 파일 저장소</h2>
-    <div class="muted">iPad에서도 파일 선택 후 업로드 가능. PDF/DOCX/TXT/MD/CSV/JSON은 서버가 텍스트 추출을 시도합니다.</div>
-    <input id="sourceFile" type="file" multiple />
-    <button onclick="uploadSourceFiles()">원본 파일 업로드</button>
-    <button class="secondary" onclick="listSourceFiles()">목록 새로고침</button>
-    <div id="sourceList" class="list" style="margin-top:10px"></div>
-    <h3>선택 파일 텍스트</h3>
-    <pre id="sourceText">아직 불러온 텍스트 없음</pre>
-  </section>
-
-  <section>
-    <h2>3. 설계도 JSON</h2>
-    <div class="row">
-      <button onclick="saveBlueprint()">설계도 저장 + 검사</button>
-      <button class="secondary" onclick="getBlueprint()">서버 설계도 불러오기</button>
-      <button class="warn" onclick="validateBlueprint()">검사</button>
-      <button class="ok" onclick="generateTxt()">TXT 생성</button>
-    </div>
-    <textarea id="blueprint" placeholder='{"meta": { ... }, "files": [ ... ]}'></textarea>
-  </section>
-
-  <section>
-    <h2>4. 결과 / 다운로드 / GPT 리포트</h2>
-    <div class="row">
-      <button onclick="loadReport()">리포트 불러오기</button>
-      <button class="secondary" onclick="copyGptPrompt()">GPT에 보낼 리포트 복사</button>
-      <button class="secondary" onclick="downloadZip()">TXT ZIP 다운로드</button>
-    </div>
-    <div id="fileList" class="list" style="margin:10px 0"></div>
-    <pre id="output">결과 없음</pre>
+    <div class="row" style="justify-content:space-between"><h2>3. 설계 / 생성 / 해설</h2><span id="currentProject" class="muted">미선택</span></div>
+    <label>제목</label><input id="title" placeholder="예: CRE 반응기 계산 PRGM" />
+    <div class="tabs"><button id="tabBlueprint" class="active" onclick="showTab('blueprint')">설계도 JSON</button><button id="tabAnalysis" onclick="showTab('analysis')">자료 분석/구상</button><button id="tabManual" onclick="showTab('manual')">사용법/구조 해설</button></div>
+    <div id="panelBlueprint" class="panel active"><textarea id="blueprint" style="min-height:320px" placeholder='{"meta":{"strictFinalNames":true},"files":[{"name":"MAIN","lines":[{"type":"text","value":"HELLO"}]}]}'></textarea></div>
+    <div id="panelAnalysis" class="panel"><textarea id="analysis" style="min-height:320px" placeholder="GPT가 먼저 자료를 분석해서 어떤 계산을 프로그램화할지 구상한 내용"></textarea></div>
+    <div id="panelManual" class="panel"><textarea id="manual" style="min-height:320px" placeholder="최종 파일 사용법, 프로그램 구조, 변수 의미, 입력 순서, 주의사항"></textarea></div>
+    <div class="row"><button class="warn" onclick="validateBlueprint()">검사</button><button class="ok" onclick="generateAndSave()">TXT 생성 + 저장</button><button class="secondary" onclick="downloadZip()">TXT ZIP 다운로드</button><button class="secondary" onclick="downloadProjectZip()">프로젝트 ZIP</button><button class="bad" onclick="deleteCurrent()">현재 프로젝트 삭제</button></div>
+    <h2>결과</h2><div id="fileList" class="list" style="margin-bottom:10px"><div class="item muted">생성 파일 없음</div></div><pre id="output">결과 없음</pre>
   </section>
 </main>
-
 <script>
-const $ = id => document.getElementById(id);
-let latestReport = null;
-
-function init() {
-  $('apiBase').value = localStorage.getItem('apiBase') || location.origin;
-  $('actionKey').value = localStorage.getItem('actionKey') || '';
-  $('projectId').value = localStorage.getItem('projectId') || '';
-  $('editKey').value = localStorage.getItem('editKey') || new URLSearchParams(location.search).get('key') || '';
-  const pathProject = location.pathname.match(/\/p\/([^/]+)/);
-  if (!$('projectId').value && pathProject) $('projectId').value = decodeURIComponent(pathProject[1]);
-  const draft = localStorage.getItem('blueprintDraft');
-  if (draft) $('blueprint').value = draft;
-  $('blueprint').addEventListener('input', () => localStorage.setItem('blueprintDraft', $('blueprint').value));
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('./service-worker.js').catch(()=>{});
-  if ($('projectId').value && $('editKey').value) loadProject();
-}
-
-function saveSettings() {
-  localStorage.setItem('apiBase', $('apiBase').value.trim().replace(/\/$/, ''));
-  localStorage.setItem('actionKey', $('actionKey').value);
-  localStorage.setItem('projectId', $('projectId').value.trim());
-  localStorage.setItem('editKey', $('editKey').value.trim());
-  msg('설정 저장 완료');
-}
-
-function apiBase() { return ($('apiBase').value.trim() || location.origin).replace(/\/$/, ''); }
-function authHeaders(json=true) {
-  const h = {};
-  if (json) h['Content-Type'] = 'application/json';
-  if ($('actionKey').value) h['X-Action-Key'] = $('actionKey').value;
-  return h;
-}
-function projectId() { return $('projectId').value.trim(); }
-function editKey() { return $('editKey').value.trim(); }
-function msg(x) { $('output').textContent = typeof x === 'string' ? x : JSON.stringify(x, null, 2); }
-
-async function request(path, opts={}) {
-  const res = await fetch(apiBase() + path, opts);
-  const text = await res.text();
-  let data;
-  try { data = JSON.parse(text); } catch { data = text; }
-  if (!res.ok) throw new Error(typeof data === 'string' ? data : JSON.stringify(data));
-  return data;
-}
-
-async function createProject() {
-  try {
-    const data = await request('/api/projects', {
-      method:'POST', headers:authHeaders(), body: JSON.stringify({
-        title:$('newTitle').value || 'CASIO PRGM Project',
-        course:$('newCourse').value || '',
-        source_summary:$('newSummary').value || ''
-      })
-    });
-    $('projectId').value = data.project_id;
-    $('editKey').value = data.edit_key;
-    saveSettings();
-    $('projectBox').textContent = '생성됨: ' + data.project_url;
-    msg(data);
-  } catch(e) { msg('오류: ' + e.message); }
-}
-
-async function loadProject() {
-  try {
-    saveSettings();
-    const data = await request(`/api/projects/${encodeURIComponent(projectId())}?edit_key=${encodeURIComponent(editKey())}`);
-    $('projectBox').textContent = `${data.project.title} / can_edit=${data.can_edit}`;
-    if (data.latest_blueprint?.blueprint) {
-      $('blueprint').value = JSON.stringify(data.latest_blueprint.blueprint, null, 2);
-      localStorage.setItem('blueprintDraft', $('blueprint').value);
-    }
-    renderSources(data.source_files || []);
-    renderFiles(data.files || []);
-    msg(data);
-  } catch(e) { msg('오류: ' + e.message); }
-}
-
-async function uploadSourceFiles() {
-  try {
-    const files = $('sourceFile').files;
-    if (!files.length) return msg('업로드할 파일을 선택하세요.');
-    const results = [];
-    for (const file of files) {
-      const fd = new FormData();
-      fd.append('file', file);
-      const res = await fetch(`${apiBase()}/api/projects/${encodeURIComponent(projectId())}/source-files?edit_key=${encodeURIComponent(editKey())}`, {
-        method:'POST', headers:authHeaders(false), body:fd
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(JSON.stringify(data));
-      results.push(data);
-    }
-    msg(results);
-    listSourceFiles();
-  } catch(e) { msg('업로드 오류: ' + e.message); }
-}
-
-function renderSources(files) {
-  $('sourceList').innerHTML = files.length ? '' : '<div class="item muted">원본 파일 없음</div>';
-  for (const f of files) {
-    const el = document.createElement('div');
-    el.className = 'item';
-    el.innerHTML = `<b>${escapeHtml(f.original_name)}</b><div class="small">id=${f.id} / ${f.size_bytes} bytes / ${f.text_status} / text ${f.extracted_chars || 0} chars</div>`;
-    const btn = document.createElement('button'); btn.textContent = '텍스트 보기'; btn.className='secondary'; btn.onclick = () => getSourceText(f.id);
-    const dl = document.createElement('button'); dl.textContent = '원본 다운로드'; dl.onclick = () => window.open(`${apiBase()}/api/projects/${encodeURIComponent(projectId())}/source-files/${f.id}/download?edit_key=${encodeURIComponent(editKey())}`);
-    el.appendChild(btn); el.appendChild(dl);
-    $('sourceList').appendChild(el);
-  }
-}
-
-async function listSourceFiles() {
-  try {
-    const data = await request(`/api/projects/${encodeURIComponent(projectId())}/source-files?edit_key=${encodeURIComponent(editKey())}`);
-    renderSources(data.source_files || []);
-    msg(data);
-  } catch(e) { msg('오류: ' + e.message); }
-}
-
-async function getSourceText(fileId) {
-  try {
-    const data = await request(`/api/projects/${encodeURIComponent(projectId())}/source-files/${fileId}/text?edit_key=${encodeURIComponent(editKey())}&offset=0&limit=30000`);
-    $('sourceText').textContent = JSON.stringify({status:data.text_status, total_chars:data.total_chars, has_more:data.has_more}, null, 2) + '\n\n' + data.text;
-  } catch(e) { $('sourceText').textContent = '오류: ' + e.message; }
-}
-
-function blueprintObj() {
-  const raw = $('blueprint').value.trim();
-  if (!raw) throw new Error('설계도 JSON이 비어 있습니다.');
-  return JSON.parse(raw);
-}
-
-async function saveBlueprint() {
-  try {
-    const data = await request(`/api/projects/${encodeURIComponent(projectId())}/blueprint`, {
-      method:'POST', headers:authHeaders(), body:JSON.stringify({edit_key:editKey(), blueprint:blueprintObj()})
-    });
-    msg(data);
-  } catch(e) { msg('오류: ' + e.message); }
-}
-async function getBlueprint() {
-  try {
-    const data = await request(`/api/projects/${encodeURIComponent(projectId())}/blueprint?edit_key=${encodeURIComponent(editKey())}`);
-    $('blueprint').value = JSON.stringify(data.blueprint, null, 2);
-    msg(data);
-  } catch(e) { msg('오류: ' + e.message); }
-}
-async function validateBlueprint() {
-  try {
-    const data = await request(`/api/projects/${encodeURIComponent(projectId())}/validate`, {
-      method:'POST', headers:authHeaders(), body:JSON.stringify({edit_key:editKey(), blueprint:blueprintObj(), save:false})
-    });
-    latestReport = data;
-    msg(data);
-  } catch(e) { msg('오류: ' + e.message); }
-}
-async function generateTxt() {
-  try {
-    const data = await request(`/api/projects/${encodeURIComponent(projectId())}/generate`, {
-      method:'POST', headers:authHeaders(), body:JSON.stringify({edit_key:editKey(), blueprint:blueprintObj(), save:true})
-    });
-    latestReport = data;
-    renderFiles((data.files || []).map(f => ({file_name:f.name, bytes:f.content.length})));
-    msg(data);
-  } catch(e) { msg('오류: ' + e.message); }
-}
-function renderFiles(files) {
-  $('fileList').innerHTML = files.length ? '' : '<div class="item muted">생성 파일 없음</div>';
-  for (const f of files) {
-    const name = f.file_name || f.name;
-    const el = document.createElement('div');
-    el.className = 'item';
-    el.innerHTML = `<b>${escapeHtml(name)}</b><div class="small">${f.bytes || ''} bytes</div>`;
-    const btn = document.createElement('button'); btn.textContent='다운로드'; btn.onclick = () => window.open(`${apiBase()}/api/projects/${encodeURIComponent(projectId())}/files/${encodeURIComponent(name)}?edit_key=${encodeURIComponent(editKey())}`);
-    el.appendChild(btn); $('fileList').appendChild(el);
-  }
-}
-async function loadReport() {
-  try {
-    const data = await request(`/api/projects/${encodeURIComponent(projectId())}/report?edit_key=${encodeURIComponent(editKey())}`);
-    latestReport = data;
-    renderSources(data.source_files || []);
-    renderFiles(data.files || []);
-    msg(data);
-  } catch(e) { msg('오류: ' + e.message); }
-}
-function downloadZip() {
-  window.open(`${apiBase()}/api/projects/${encodeURIComponent(projectId())}/download.zip?edit_key=${encodeURIComponent(editKey())}`);
-}
-function copyGptPrompt() {
-  const text = `아래 CASIO PRGM 프로젝트를 검토/수정해줘.\n\n프로젝트 ID: ${projectId()}\n\n원본 파일 목록과 검사 결과:\n${JSON.stringify(latestReport, null, 2)}\n\n설계도 JSON:\n${$('blueprint').value}`;
-  navigator.clipboard.writeText(text).then(() => msg('GPT에 보낼 리포트를 복사했습니다.'));
-}
-function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-
-init();
+const $ = id => document.getElementById(id); let selectedProjectId = new URLSearchParams(location.search).get('projectId') || '';
+function apiBase(){ return ($('apiBase').value.trim() || location.origin).replace(/\/$/,''); }
+function headers(json=true){ const h={}; if(json) h['Content-Type']='application/json'; const k=$('actionKey').value || localStorage.getItem('lecturenote_action_key') || ''; if(k) h['X-Action-Key']=k; return h; }
+function msg(x){ $('output').textContent = typeof x === 'string' ? x : JSON.stringify(x,null,2); }
+function saveSettings(){ localStorage.setItem('apiBase',$('apiBase').value.trim() || location.origin); localStorage.setItem('lecturenote_action_key',$('actionKey').value); localStorage.setItem('casio_subject',$('subject').value.trim()); localStorage.setItem('casio_blueprint_draft',$('blueprint').value); localStorage.setItem('casio_analysis_draft',$('analysis').value); localStorage.setItem('casio_manual_draft',$('manual').value); msg('설정 저장 완료'); }
+function loadSettings(){ $('apiBase').value=localStorage.getItem('apiBase') || location.origin; $('actionKey').value=localStorage.getItem('lecturenote_action_key') || ''; $('subject').value=localStorage.getItem('casio_subject') || ''; $('blueprint').value=localStorage.getItem('casio_blueprint_draft') || ''; $('analysis').value=localStorage.getItem('casio_analysis_draft') || ''; $('manual').value=localStorage.getItem('casio_manual_draft') || ''; }
+async function request(path, opts={}){ const res=await fetch(apiBase()+path,opts); const text=await res.text(); let data; try{data=JSON.parse(text)}catch{data=text} if(!res.ok) throw new Error(typeof data==='string'?data:JSON.stringify(data)); return data; }
+function blueprintObj(){ const raw=$('blueprint').value.trim(); if(!raw) throw new Error('설계도 JSON이 비어 있습니다.'); return JSON.parse(raw); }
+function payload(){ return {title:$('title').value || 'CASIO PRGM Project', blueprint:blueprintObj(), metadata:{subject:$('subject').value.trim(), origin:'casio-studio'}, analysis_markdown:$('analysis').value, manual_markdown:$('manual').value, replace_calculator_project_id:selectedProjectId || ''}; }
+function showTab(name){ for(const n of ['blueprint','analysis','manual']){ $('tab'+cap(n)).classList.toggle('active',n===name); $('panel'+cap(n)).classList.toggle('active',n===name); } } function cap(s){return s.charAt(0).toUpperCase()+s.slice(1)}
+async function validateBlueprint(){ try{ saveSettings(); const data=await request('/calculator/validate',{method:'POST',headers:headers(),body:JSON.stringify(payload())}); msg(data); }catch(e){ msg('오류: '+e.message); } }
+async function generateAndSave(){ try{ saveSettings(); const data=await request('/calculator/generate',{method:'POST',headers:headers(),body:JSON.stringify(payload())}); selectedProjectId=data.calculator_project_id; $('currentProject').textContent='선택: '+selectedProjectId; renderFiles(data.generated?.files||[]); msg(data); listProjects(); }catch(e){ msg('오류: '+e.message); } }
+async function downloadZip(){ try{ saveSettings(); const res=await fetch(apiBase()+'/calculator/generate.zip',{method:'POST',headers:headers(),body:JSON.stringify(payload())}); if(!res.ok) throw new Error(await res.text()); const blob=await res.blob(); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='casio-prgm-files.zip'; a.click(); URL.revokeObjectURL(a.href); }catch(e){ msg('오류: '+e.message); } }
+async function listProjects(){ try{ const subject=encodeURIComponent($('subject').value.trim()); const data=await request('/calculator/projects'+(subject?'?subject='+subject:''),{headers:headers(false)}); const list=data.calculator_projects||[]; $('projectList').innerHTML=list.length?'':'<div class="item muted">저장 프로젝트 없음</div>'; for(const p of list){ const el=document.createElement('div'); el.className='item'; el.innerHTML=`<b>${esc(p.title)}</b><div class="muted">${esc(p.subject||'미지정')} · ${esc(p.calculator_project_id)} · files ${p.file_count}</div>`; const load=document.createElement('button'); load.textContent='열기'; load.onclick=()=>loadProject(p.calculator_project_id); const manual=document.createElement('button'); manual.textContent='사용법'; manual.className='secondary'; manual.onclick=()=>window.open(apiBase()+`/calculator/projects/${encodeURIComponent(p.calculator_project_id)}/manual`); el.appendChild(load); el.appendChild(manual); $('projectList').appendChild(el); } msg(data); }catch(e){ msg('오류: '+e.message); } }
+async function loadProject(id){ try{ const data=await request(`/calculator/projects/${encodeURIComponent(id)}`,{headers:headers(false)}); selectedProjectId=id; $('currentProject').textContent='선택: '+id; $('title').value=data.title||''; $('blueprint').value=JSON.stringify(data.blueprint||{},null,2); $('analysis').value=data.analysis_markdown||''; $('manual').value=data.manual_markdown||''; renderFiles(data.generated?.files||[]); msg(data); }catch(e){ msg('오류: '+e.message); } }
+async function downloadProjectZip(){ if(!selectedProjectId) return msg('먼저 프로젝트를 열어야 합니다.'); try{ const res=await fetch(apiBase()+`/calculator/projects/${encodeURIComponent(selectedProjectId)}/download.zip`,{headers:headers(false)}); if(!res.ok) throw new Error(await res.text()); const blob=await res.blob(); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=selectedProjectId+'-casio.zip'; a.click(); URL.revokeObjectURL(a.href); }catch(e){ msg('오류: '+e.message); } }
+async function deleteCurrent(){ if(!selectedProjectId) return msg('삭제할 프로젝트가 선택되지 않았습니다.'); if(!confirm('현재 계산기 프로젝트를 삭제할까요?')) return; try{ const data=await request(`/calculator/projects/${encodeURIComponent(selectedProjectId)}`,{method:'DELETE',headers:headers(false)}); selectedProjectId=''; $('currentProject').textContent='미선택'; msg(data); listProjects(); }catch(e){ msg('오류: '+e.message); } }
+function renderFiles(files){ $('fileList').innerHTML=files.length?'':'<div class="item muted">생성 파일 없음</div>'; for(const f of files){ const el=document.createElement('div'); el.className='item'; const content=f.content||''; el.innerHTML=`<b>${esc(f.name)}</b><pre>${esc(content)}</pre>`; $('fileList').appendChild(el); } }
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+loadSettings(); if(selectedProjectId) loadProject(selectedProjectId); if('serviceWorker' in navigator) navigator.serviceWorker.register('./service-worker.js').catch(()=>{});
 </script>
 </body>
 </html>

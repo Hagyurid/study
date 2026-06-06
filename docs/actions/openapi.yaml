@@ -400,6 +400,7 @@ paths:
                 source_type: {type: string}
                 change_summary: {type: string}
                 based_on_version: {type: integer}
+                replace_latest: {type: boolean}
       responses:
         "200": {description: Saved note version}
     get:
@@ -470,6 +471,97 @@ paths:
       summary: List saved unit maps
       responses:
         "200": {description: Unit map list}
+
+  /study/notes:
+    get:
+      operationId: listStudyNotes
+      summary: List generated notes, exam cram sheets, external notes, and calculator manuals
+      parameters:
+        - name: subject
+          in: query
+          required: false
+          schema: {type: string}
+        - name: source_type
+          in: query
+          required: false
+          schema: {type: string}
+      responses:
+        "200": {description: Study notes}
+    post:
+      operationId: saveStudyNote
+      summary: Save a markdown study note as a generated artifact
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, content_markdown]
+              properties:
+                title: {type: string}
+                content_markdown: {type: string}
+                subject: {type: string}
+                source_type: {type: string}
+                series_id: {type: string}
+                change_summary: {type: string}
+                replace_latest: {type: boolean}
+      responses:
+        "200": {description: Saved study note}
+
+  /exam-cram:
+    post:
+      operationId: saveExamCram
+      summary: Save a 2-3 page pre-exam cram sheet as markdown
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, content_markdown]
+              properties:
+                title: {type: string}
+                content_markdown: {type: string}
+                subject: {type: string}
+                series_id: {type: string}
+                change_summary: {type: string}
+                replace_latest: {type: boolean}
+      responses:
+        "200": {description: Saved exam cram sheet}
+
+  /study/notes/{source_id}:
+    get:
+      operationId: getStudyNote
+      summary: Get markdown content for a study note
+      parameters:
+        - name: source_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200": {description: Study note content}
+    put:
+      operationId: updateStudyNote
+      summary: Replace markdown content for an existing study note
+      parameters:
+        - name: source_id
+          in: path
+          required: true
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content_markdown]
+              properties:
+                title: {type: string}
+                content_markdown: {type: string}
+                change_summary: {type: string}
+      responses:
+        "200": {description: Updated study note}
+
   /unit-maps/{unit_map_id}:
     get:
       operationId: getUnitMap
@@ -497,6 +589,54 @@ paths:
                 pack: {type: object}
       responses:
         "200": {description: Saved}
+
+  /calculator/projects:
+    get:
+      operationId: listCalculatorProjects
+      summary: List saved CASIO calculator projects
+      parameters:
+        - name: subject
+          in: query
+          required: false
+          schema: {type: string}
+      responses:
+        "200": {description: Calculator projects}
+
+  /calculator/projects/{project_id}:
+    get:
+      operationId: getCalculatorProject
+      summary: Get saved CASIO calculator project with blueprint, files, and manual
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200": {description: Calculator project}
+    delete:
+      operationId: deleteCalculatorProject
+      summary: Delete a saved CASIO calculator project
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200": {description: Deleted calculator project}
+
+
+  /calculator/projects/{project_id}/download.zip:
+    get:
+      operationId: downloadCalculatorProjectZip
+      summary: Download saved calculator TXT files plus manual and analysis as a ZIP
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200": {description: Calculator ZIP}
+
   /calculator/validate:
     post:
       operationId: validateCalculatorBlueprint
@@ -512,6 +652,9 @@ paths:
                 title: {type: string}
                 blueprint: {type: object}
                 metadata: {type: object}
+                analysis_markdown: {type: string}
+                manual_markdown: {type: string}
+                replace_calculator_project_id: {type: string}
       responses:
         "200": {description: Validation result}
   /calculator/generate:
@@ -529,5 +672,8 @@ paths:
                 title: {type: string}
                 blueprint: {type: object}
                 metadata: {type: object}
+                analysis_markdown: {type: string}
+                manual_markdown: {type: string}
+                replace_calculator_project_id: {type: string}
       responses:
         "200": {description: Generated}

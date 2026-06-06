@@ -44,6 +44,9 @@ class CalculatorBlueprintSave(BaseModel):
     title: str
     blueprint: Dict[str, Any]
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    analysis_markdown: str = ""
+    manual_markdown: str = ""
+    replace_calculator_project_id: str = ""
 
 
 class SearchRequest(BaseModel):
@@ -76,6 +79,7 @@ class NoteVersionSave(BaseModel):
     source_type: str = "generated_note"
     change_summary: str = ""
     based_on_version: Optional[int] = None
+    replace_latest: bool = False
 
 
 class TranscriptRevisionSave(BaseModel):
@@ -118,3 +122,29 @@ class WorkflowCheckpointSave(BaseModel):
     next_action: str = ""
     notes: str = ""
     advance_to_next: bool = True
+
+
+
+class StudyNoteSave(BaseModel):
+    title: str
+    content_markdown: str
+    subject: str = ""
+    source_type: str = "generated_note"
+    series_id: str = ""
+    change_summary: str = ""
+    replace_latest: bool = True
+
+
+class StudyNoteUpdate(BaseModel):
+    title: str = ""
+    content_markdown: str
+    change_summary: str = "edited in Study Note Studio"
+
+
+class ExamCramSave(BaseModel):
+    title: str
+    content_markdown: str
+    subject: str = ""
+    series_id: str = ""
+    change_summary: str = "exam cram update"
+    replace_latest: bool = True

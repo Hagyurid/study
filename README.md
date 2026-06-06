@@ -357,3 +357,70 @@ tests/test_solvepad_static_v13.py
 ```
 
 배포 후 Safari에서 페이지를 새로고침하고 문제가 남으면 웹사이트 데이터 캐시를 삭제하세요.
+
+
+## v15 메뉴형 GPT + 업로드 키 자동 입력
+
+추가 기능:
+
+```text
+Custom GPT에서 “메뉴” 입력 시 단계형 메뉴 표시
+업로드/외부정리본/파일관리 화면에서 ACTION_API_KEY를 브라우저 localStorage에 저장
+다음 업로드부터 키 자동 입력
+저장된 키 지우기 버튼 추가
+```
+
+업로드 키는 서버에 저장되지 않고 사용자의 브라우저에만 저장됩니다.
+
+
+## v16 계산기 연결 / 통합 업로드 / 교체 저장
+
+- 홈 화면에 CASIO 계산기 PRGM Studio 링크를 복구했습니다.
+- SolvePad와 CASIO Studio에 홈으로 돌아가기 버튼을 추가했습니다.
+- 외부 정리본은 별도 화면이 아니라 `/upload`의 자료 유형 `외부 정리본`으로 업로드합니다.
+- 계산기 프로그램 저장 시 `analysis_markdown`과 `manual_markdown`을 함께 저장할 수 있습니다.
+- 저장된 계산기 프로젝트는 `/static/casio/index.html`에서 불러오고 사용법 문서를 열 수 있습니다.
+- 정리본 수정은 `replace_latest=true`, 계산기 수정은 `replace_calculator_project_id`로 기존 생성물을 교체할 수 있습니다.
+
+
+## v17 최적화
+
+변경 사항:
+
+```text
+- searchSources SQL pre-filter 적용으로 큰 자료셋 검색 효율 개선
+- subject 필터가 workflow options의 unit map에도 적용되도록 수정
+- deleteSource 시 note_versions/transcript_revisions orphan 정리
+- Custom GPT Instructions 누적식 문서를 단일 최종 운영 지침으로 정리
+- 출력 품질 안정화 Knowledge 추가
+```
+
+추가 Knowledge:
+
+```text
+docs/custom_gpt/17_output_quality_contract.txt
+```
+
+
+## v18 Study Note Studio + Exam Cram
+
+추가 기능:
+
+```text
+/static/study/index.html
+/study/notes
+/exam-cram
+```
+
+Study Note Studio에서 GPT 생성 정리본, 외부 정리본, 시험 직전 정리, 계산기 사용법 문서를 열어 공부하고 수정할 수 있습니다.
+
+지원:
+- Markdown 원문 수정
+- MathJax 수식 렌더링
+- 이미지 삽입
+- 형광펜 표시
+- 저장
+- Markdown/Word 다운로드
+- PDF 저장용 인쇄 화면
+
+시험 직전 정리 자료는 `exam_cram` source_type으로 저장됩니다.

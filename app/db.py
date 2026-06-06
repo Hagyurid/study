@@ -56,6 +56,7 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_sources_type ON sources(source_type);
             CREATE INDEX IF NOT EXISTS idx_sources_subject ON sources(subject);
             CREATE INDEX IF NOT EXISTS idx_chunks_source ON source_chunks(source_id);
+            CREATE INDEX IF NOT EXISTS idx_chunks_source_index ON source_chunks(source_id, chunk_index);
             CREATE INDEX IF NOT EXISTS idx_chunks_text ON source_chunks(text);
 
             CREATE TABLE IF NOT EXISTS projects (
@@ -118,6 +119,9 @@ def init_db() -> None:
                 validation_json TEXT NOT NULL DEFAULT '{}',
                 generated_json TEXT NOT NULL DEFAULT '{}',
                 metadata TEXT NOT NULL DEFAULT '{}',
+                manual_markdown TEXT NOT NULL DEFAULT '',
+                manual_source_id TEXT NOT NULL DEFAULT '',
+                analysis_markdown TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL
             );
 
@@ -145,6 +149,7 @@ def init_db() -> None:
             );
 
             CREATE INDEX IF NOT EXISTS idx_note_versions_series ON note_versions(series_id, version);
+            CREATE INDEX IF NOT EXISTS idx_note_versions_source ON note_versions(source_id);
 
             CREATE TABLE IF NOT EXISTS transcript_revisions (
                 id TEXT PRIMARY KEY,
@@ -205,10 +210,45 @@ def init_db() -> None:
             """
         )
         _ensure_column(db, "sources", "subject", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(db, "calculator_blueprints", "manual_markdown", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(db, "calculator_blueprints", "manual_source_id", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(db, "calculator_blueprints", "analysis_markdown", "TEXT NOT NULL DEFAULT ''")
 
 
 def make_id(prefix: str) -> str:
     return f"{prefix}-{secrets.token_hex(4)}"
+
+
+UNIT_SOURCE_FIELDS = {
+    "textbook": "textbook",
+    "lectureSlides": "lecture_slides",
+    "transcript": "transcript",
+    "correctedTranscript": "corrected_transcript",
+    "pastExam": "past_exam",
+    "examTrend": "exam_trend",
+    "generatedNote": "generated_note",
+    "externalNote": "external_note",
+}
+
+
+def _safe_json_loads(value: str, fallback: Any) -> Any:
+    try:
+        return json.loads(value or "")
+    except Exception:
+        return fallback
+
+
+def _unit_source_ids(unit: Dict[str, Any]) -> Set[str]:
+    ids: Set[str] = set()
+    anchor = unit.get("lectureAnchor") or {}
+    if anchor.get("sourceId"):
+        ids.add(str(anchor.get("sourceId")))
+    for key in UNIT_SOURCE_FIELDS:
+        for item in unit.get(key, []) or []:
+            sid = item.get("sourceId") if isinstance(item, dict) else None
+            if sid:
+                ids.add(str(sid))
+    return ids
 
 
 def chunk_text(text: str, max_chars: int = 2600, overlap: int = 250) -> List[str]:
@@ -265,6 +305,7 @@ def save_source(
 
 
 def save_text_source(title: str, source_type: str, text: str, original_name: str = "generated.md", subject: str = "") -> Dict[str, Any]:
+    title = (title or Path(original_name or "generated.md").stem or source_type).strip()
     source_id = make_id("src")
     ts = now()
     stored_path = f"text://{source_type}/{source_id}/{original_name}"
@@ -310,10 +351,12 @@ def get_source(source_id: str) -> Optional[Dict[str, Any]]:
 
 
 def search_sources(query: str, source_types: Optional[List[str]] = None, limit: int = 5, subject: str = "") -> List[Dict[str, Any]]:
+    """Return the most relevant chunks without loading the entire chunk table when a query is provided."""
     terms = [term.strip().lower() for term in (query or "").split() if term.strip()]
     source_types = source_types or []
+    limit = max(1, min(int(limit or 5), 10))
     params: List[Any] = []
-    where = []
+    where: List[str] = []
     if source_types:
         placeholders = ",".join(["?"] * len(source_types))
         where.append(f"s.source_type IN ({placeholders})")
@@ -321,32 +364,44 @@ def search_sources(query: str, source_types: Optional[List[str]] = None, limit: 
     if subject:
         where.append("s.subject=?")
         params.append(subject)
-    type_sql = "WHERE " + " AND ".join(where) if where else ""
+    if terms:
+        like_parts = []
+        for term in terms:
+            like_parts.append("(LOWER(c.text) LIKE ? OR LOWER(s.title) LIKE ? OR LOWER(s.original_name) LIKE ?)")
+            like = f"%{term}%"
+            params.extend([like, like, like])
+        where.append("(" + " OR ".join(like_parts) + ")")
+    where_sql = "WHERE " + " AND ".join(where) if where else ""
 
     with conn() as db:
         rows = [
             dict(row)
             for row in db.execute(
                 f"""
-                SELECT c.*, s.title AS source_title, s.source_type
+                SELECT c.*, s.title AS source_title, s.subject, s.source_type, s.original_name
                 FROM source_chunks c
                 JOIN sources s ON s.id = c.source_id
-                {type_sql}
+                {where_sql}
                 ORDER BY c.created_at DESC
+                LIMIT ?
                 """,
-                params,
+                params + [max(limit * 8, 20)],
             ).fetchall()
         ]
 
-    scored = []
+    scored: List[Dict[str, Any]] = []
     for row in rows:
-        text = (row.get("text") or "").lower()
-        score = sum(text.count(term) for term in terms) if terms else 1
+        haystack = " ".join([
+            row.get("text") or "",
+            row.get("source_title") or "",
+            row.get("original_name") or "",
+        ]).lower()
+        score = sum(haystack.count(term) for term in terms) if terms else 1
         if score > 0:
             row["score"] = score
             scored.append(row)
-    scored.sort(key=lambda item: item["score"], reverse=True)
-    return scored[: max(1, min(limit, 10))]
+    scored.sort(key=lambda item: (item.get("score", 0), item.get("created_at", "")), reverse=True)
+    return scored[:limit]
 
 
 def _mapped_source_ids_from_unit_maps() -> Set[str]:
@@ -364,11 +419,7 @@ def _mapped_source_ids_from_unit_maps() -> Set[str]:
                 if isinstance(ids, list):
                     mapped.update(str(item) for item in ids)
             for unit in mapping.get("units", []):
-                for key in ["textbook", "lectureSlides", "transcript", "pastExam", "generatedNote", "externalNote", "correctedTranscript"]:
-                    for item in unit.get(key, []) or []:
-                        sid = item.get("sourceId")
-                        if sid:
-                            mapped.add(sid)
+                mapped.update(_unit_source_ids(unit))
         except Exception:
             pass
     return mapped
@@ -413,6 +464,7 @@ def _modes() -> List[Dict[str, Any]]:
         {"mode": "lecture_note", "label": "정리본", "referencePriority": ["lecture_slides", "textbook", "corrected_transcript", "transcript", "exam_trend", "past_exam"]},
         {"mode": "calculator_prgm", "label": "계산기", "referencePriority": ["generated_note", "external_note", "exam_trend", "past_exam"]},
         {"mode": "problem_pack", "label": "문제지", "referencePriority": ["generated_note", "external_note", "exam_trend", "past_exam"]},
+        {"mode": "exam_cram", "label": "시험 직전 정리", "referencePriority": ["generated_note", "external_note", "exam_trend", "past_exam"]},
         {"mode": "transcript_revision", "label": "전사본 보정", "referencePriority": ["transcript", "lecture_slides", "textbook"]},
         {"mode": "unit_mapping", "label": "단원 매핑", "referencePriority": ["lecture_slides", "textbook", "corrected_transcript", "transcript", "past_exam", "generated_note", "external_note"]},
     ]
@@ -420,13 +472,21 @@ def _modes() -> List[Dict[str, Any]]:
 
 def get_workflow_options(subject: str = "") -> Dict[str, Any]:
     sources = list_sources(subject=subject)
+    subject_source_ids = {source["id"] for source in sources}
     unit_maps = list_unit_maps()
-    units = []
+    units: List[Dict[str, Any]] = []
+    visible_unit_maps: List[Dict[str, Any]] = []
     for item in unit_maps:
         full = get_unit_map(item["id"])
         if not full:
             continue
-        for unit in full["map"].get("units", []):
+        map_units = full["map"].get("units", []) or []
+        visible_units = []
+        for unit in map_units:
+            unit_source_ids = _unit_source_ids(unit)
+            if subject and unit_source_ids and not (unit_source_ids & subject_source_ids):
+                continue
+            visible_units.append(unit)
             units.append({
                 "unitMapId": item["id"],
                 "unitId": unit.get("unitId"),
@@ -438,12 +498,16 @@ def get_workflow_options(subject: str = "") -> Dict[str, Any]:
                 "examRelevance": unit.get("examRelevance", "check"),
                 "confidence": unit.get("confidence", "low"),
             })
+        if not subject or visible_units or any(sid in subject_source_ids for sid in item.get("source_ids", [])):
+            visible_item = dict(item)
+            visible_item["visibleUnitCount"] = len(visible_units)
+            visible_unit_maps.append(visible_item)
     return {
         "subjects": sorted({source.get("subject", "") for source in sources if source.get("subject", "")}),
         "availableSourceTypes": sorted({source["source_type"] for source in sources}),
         "sources": sources,
         "unmappedSources": list_unmapped_sources(subject=subject),
-        "unitMaps": unit_maps,
+        "unitMaps": visible_unit_maps,
         "units": units,
         "availableModes": _modes(),
     }
@@ -501,6 +565,72 @@ def list_workflow_plans() -> List[Dict[str, Any]]:
 
 
 
+
+def get_source_markdown(source_id: str) -> Optional[Dict[str, Any]]:
+    source = get_source(source_id)
+    if not source:
+        return None
+    with conn() as db:
+        note = db.execute(
+            "SELECT * FROM note_versions WHERE source_id=? ORDER BY version DESC LIMIT 1",
+            (source_id,),
+        ).fetchone()
+        if note:
+            note_data = dict(note)
+            return {"source": source, "markdown": note_data.get("content_markdown", ""), "note_version": note_data}
+        rows = db.execute(
+            "SELECT text FROM source_chunks WHERE source_id=? ORDER BY chunk_index ASC",
+            (source_id,),
+        ).fetchall()
+    return {"source": source, "markdown": "\n\n".join(row["text"] for row in rows), "note_version": None}
+
+
+def update_source_markdown(source_id: str, content_markdown: str, title: str = "", change_summary: str = "edited") -> Dict[str, Any]:
+    current = get_source_markdown(source_id)
+    if not current:
+        return {}
+    source = current["source"]
+    new_title = (title or source.get("title") or "Untitled").strip()
+    ts = now()
+    chunks = chunk_text(content_markdown)
+    with conn() as db:
+        db.execute("UPDATE sources SET title=?, size_bytes=?, extract_status=? WHERE id=?", (new_title, len(content_markdown.encode("utf-8")), "markdown_edited", source_id))
+        db.execute("DELETE FROM source_chunks WHERE source_id=?", (source_id,))
+        for i, chunk in enumerate(chunks, 1):
+            db.execute(
+                """
+                INSERT INTO source_chunks(id,source_id,chunk_index,heading,page_hint,text,created_at)
+                VALUES(?,?,?,?,?,?,?)
+                """,
+                (f"{source_id}-c{i:04d}", source_id, i, "", "", chunk, ts),
+            )
+        note = db.execute("SELECT * FROM note_versions WHERE source_id=? ORDER BY version DESC LIMIT 1", (source_id,)).fetchone()
+        if note:
+            db.execute(
+                "UPDATE note_versions SET title=?, content_markdown=?, change_summary=?, created_at=? WHERE id=?",
+                (new_title, content_markdown, change_summary, ts, note["id"]),
+            )
+    return {"ok": True, "source_id": source_id, "title": new_title, "chunk_count": len(chunks), "updated_at": ts}
+
+
+def list_study_notes(subject: str = "", source_type: str = "") -> List[Dict[str, Any]]:
+    allowed = {"generated_note", "external_note", "exam_cram", "calculator_manual", "note_example"}
+    if source_type:
+        types = [source_type]
+    else:
+        types = sorted(allowed)
+    result: List[Dict[str, Any]] = []
+    for item_type in types:
+        if item_type not in allowed:
+            continue
+        for source in list_sources(item_type, subject):
+            normalized = dict(source)
+            normalized["source_id"] = normalized.get("id", "")
+            result.append(normalized)
+    result.sort(key=lambda item: item.get("created_at", ""), reverse=True)
+    return result
+
+
 def delete_source(source_id: str, delete_file: bool = True) -> Dict[str, Any]:
     source = get_source(source_id)
     if not source:
@@ -521,6 +651,8 @@ def delete_source(source_id: str, delete_file: bool = True) -> Dict[str, Any]:
     with conn() as db:
         chunk_count = db.execute("SELECT COUNT(*) AS n FROM source_chunks WHERE source_id=?", (source_id,)).fetchone()["n"]
         db.execute("DELETE FROM source_chunks WHERE source_id=?", (source_id,))
+        db.execute("DELETE FROM note_versions WHERE source_id=?", (source_id,))
+        db.execute("DELETE FROM transcript_revisions WHERE corrected_source_id=?", (source_id,))
         db.execute("DELETE FROM sources WHERE id=?", (source_id,))
     return {
         "ok": True,
@@ -1043,8 +1175,18 @@ def save_note_version(
     change_summary: str = "",
     based_on_version: Optional[int] = None,
     subject: str = "",
+    replace_latest: bool = False,
 ) -> Dict[str, Any]:
     series_id = series_id or make_id("note")
+    if replace_latest and series_id:
+        latest = get_latest_note_version(series_id)
+        if latest:
+            try:
+                delete_source(latest.get("source_id", ""))
+            except Exception:
+                pass
+            with conn() as db:
+                db.execute("DELETE FROM note_versions WHERE id=?", (latest.get("id"),))
     with conn() as db:
         row = db.execute("SELECT MAX(version) AS max_version FROM note_versions WHERE series_id=?", (series_id,)).fetchone()
         version = int(row["max_version"] or 0) + 1
@@ -1125,17 +1267,111 @@ def get_problem_pack_by_token(token: str) -> Optional[Dict[str, Any]]:
     return {"pack": json.loads(data["pack_json"]), "title": data["title"], "pack_id": data["id"]}
 
 
-def save_calculator_blueprint(title: str, blueprint: Dict[str, Any], validation: Dict[str, Any], generated: Dict[str, Any], metadata: Dict[str, Any]) -> Dict[str, Any]:
-    blueprint_id = make_id("calc")
+def save_calculator_blueprint(
+    title: str,
+    blueprint: Dict[str, Any],
+    validation: Dict[str, Any],
+    generated: Dict[str, Any],
+    metadata: Dict[str, Any],
+    manual_markdown: str = "",
+    analysis_markdown: str = "",
+    replace_project_id: str = "",
+) -> Dict[str, Any]:
+    blueprint_id = replace_project_id or make_id("calc")
+    subject = str((metadata or {}).get("subject", "") or "")
+    old_manual_source_id = ""
+    if replace_project_id:
+        with conn() as db:
+            old = db.execute("SELECT manual_source_id FROM calculator_blueprints WHERE id=?", (replace_project_id,)).fetchone()
+            if old:
+                old_manual_source_id = old["manual_source_id"] or ""
+                db.execute("DELETE FROM calculator_blueprints WHERE id=?", (replace_project_id,))
+        if old_manual_source_id:
+            try:
+                delete_source(old_manual_source_id)
+            except Exception:
+                pass
+    manual_source_id = ""
+    if manual_markdown.strip():
+        source = save_text_source(
+            f"{title} 사용법 및 구조 해설",
+            "calculator_manual",
+            manual_markdown,
+            f"{blueprint_id}_calculator_manual.md",
+            subject=subject,
+        )
+        manual_source_id = source.get("source_id", "")
     with conn() as db:
         db.execute(
             """
-            INSERT INTO calculator_blueprints(id,title,blueprint_json,validation_json,generated_json,metadata,created_at)
-            VALUES(?,?,?,?,?,?,?)
+            INSERT OR REPLACE INTO calculator_blueprints(id,title,blueprint_json,validation_json,generated_json,metadata,manual_markdown,manual_source_id,analysis_markdown,created_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?)
             """,
-            (blueprint_id, title, json.dumps(blueprint, ensure_ascii=False), json.dumps(validation, ensure_ascii=False), json.dumps(generated, ensure_ascii=False), json.dumps(metadata, ensure_ascii=False), now()),
+            (
+                blueprint_id,
+                title,
+                json.dumps(blueprint, ensure_ascii=False),
+                json.dumps(validation, ensure_ascii=False),
+                json.dumps(generated, ensure_ascii=False),
+                json.dumps(metadata, ensure_ascii=False),
+                manual_markdown,
+                manual_source_id,
+                analysis_markdown,
+                now(),
+            ),
         )
-    return {"calculator_project_id": blueprint_id}
+    return {"calculator_project_id": blueprint_id, "manual_source_id": manual_source_id}
+
+
+def _calculator_row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
+    data = dict(row)
+    data["blueprint"] = json.loads(data.pop("blueprint_json") or "{}")
+    data["validation"] = json.loads(data.pop("validation_json") or "{}")
+    data["generated"] = json.loads(data.pop("generated_json") or "{}")
+    data["metadata"] = json.loads(data.pop("metadata") or "{}")
+    return data
+
+
+def list_calculator_blueprints(subject: str = "") -> List[Dict[str, Any]]:
+    with conn() as db:
+        rows = db.execute("SELECT * FROM calculator_blueprints ORDER BY created_at DESC").fetchall()
+    result = []
+    for row in rows:
+        data = _calculator_row_to_dict(row)
+        if subject and str(data.get("metadata", {}).get("subject", "")) != subject:
+            continue
+        generated = data.get("generated", {})
+        files = generated.get("files", []) if isinstance(generated, dict) else []
+        result.append({
+            "calculator_project_id": data["id"],
+            "title": data["title"],
+            "subject": data.get("metadata", {}).get("subject", ""),
+            "file_count": len(files),
+            "manual_source_id": data.get("manual_source_id", ""),
+            "created_at": data.get("created_at", ""),
+        })
+    return result
+
+
+def get_calculator_blueprint(project_id: str) -> Optional[Dict[str, Any]]:
+    with conn() as db:
+        row = db.execute("SELECT * FROM calculator_blueprints WHERE id=?", (project_id,)).fetchone()
+    return _calculator_row_to_dict(row) if row else None
+
+
+def delete_calculator_blueprint(project_id: str) -> Dict[str, Any]:
+    project = get_calculator_blueprint(project_id)
+    if not project:
+        return {}
+    manual_source_id = project.get("manual_source_id", "")
+    with conn() as db:
+        db.execute("DELETE FROM calculator_blueprints WHERE id=?", (project_id,))
+    if manual_source_id:
+        try:
+            delete_source(manual_source_id)
+        except Exception:
+            pass
+    return {"ok": True, "deleted_calculator_project_id": project_id, "title": project.get("title", "")}
 
 
 def save_unit_map(title: str, source_ids: List[str], map_json: Dict[str, Any], created_by: str = "gpt") -> Dict[str, Any]:

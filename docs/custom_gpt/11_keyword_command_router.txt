@@ -231,3 +231,33 @@
 - "CRE 매핑 정보" → getMappingStatus(subject="CRE")
 - "CRE 미매핑" → getMappingStatus(subject="CRE") 후 unmappedSources 요약
 - "src-abcd1234 삭제" → deleteSource(source_id="src-abcd1234")
+
+
+---
+
+# v15 메뉴 명령
+
+다음 입력은 메뉴 호출로 처리한다.
+- 메뉴
+- menu
+- 도움말
+- 사용법
+- 뭐 할 수 있어
+- 기능
+
+처리:
+1. 최상위 메뉴를 보여준다.
+2. 직전에 메뉴를 보여준 경우 숫자 입력은 해당 메뉴 선택으로 해석한다.
+3. 하위 메뉴에서 0은 처음 메뉴, 뒤로는 이전 메뉴로 처리한다.
+4. 메뉴 항목에 과목명이 필요하면 subject 목록을 확인하거나 짧게 질문한다.
+
+최상위 메뉴:
+1 = 자료 상태 / 매핑 현황
+2 = 자료 매핑
+3 = 강의 정리본 생성
+4 = SolvePad 문제팩 생성
+5 = CASIO 계산기 PRGM 생성
+6 = 전사본 용어 보정
+7 = 정리본 수정 / 이어가기
+8 = 업로드 파일 관리
+9 = iPad / SolvePad 사용

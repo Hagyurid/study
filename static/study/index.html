@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Study Note Studio</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script>
+    window.MathJax = { tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']], processEscapes: true }, svg: { fontCache: 'global' } };
+  </script>
+  <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+</head>
+<body>
+  <header class="appbar">
+    <div><b>Study Note Studio</b><span id="saveState">저장 대기</span></div>
+    <nav><a href="/">홈</a><a href="/upload">자료 업로드</a><a href="/static/solvepad/index.html">SolvePad</a><a href="/static/casio/index.html">계산기</a></nav>
+  </header>
+  <main class="layout">
+    <aside class="rail">
+      <h2>자료</h2>
+      <label>액션 키</label><input id="key" type="password" placeholder="처음 한 번 입력" />
+      <label>과목</label><input id="subject" placeholder="CRE" />
+      <label>종류</label>
+      <select id="sourceType">
+        <option value="">전체 학습자료</option>
+        <option value="generated_note">GPT 생성 정리본</option>
+        <option value="exam_cram">시험 직전 정리</option>
+        <option value="external_note">외부 정리본</option>
+        <option value="calculator_manual">계산기 해설</option>
+      </select>
+      <button onclick="listNotes()">목록 불러오기</button>
+      <button class="secondary" onclick="newNote('generated_note')">새 정리본</button>
+      <button class="secondary" onclick="newNote('exam_cram')">새 시험직전</button>
+      <div id="list" class="list"></div>
+    </aside>
+    <section class="editor">
+      <div class="toolbar">
+        <input id="title" placeholder="제목" />
+        <button onclick="saveNote()">저장</button>
+        <button onclick="highlightSelection()">형광펜</button>
+        <label class="filebtn">이미지<input id="imageInput" type="file" accept="image/*" onchange="insertImage(event)" /></label>
+        <button class="secondary" onclick="downloadMd()">Markdown</button>
+        <button class="secondary" onclick="downloadDocx()">Word</button>
+        <button class="secondary" onclick="printPdf()">PDF 저장</button>
+      </div>
+      <div class="split">
+        <textarea id="markdown" spellcheck="false" placeholder="왼쪽 목록에서 정리본을 열거나 새 정리본을 만드세요. 수식은 $...$ 또는 $$...$$ 형태로 작성합니다."></textarea>
+        <article id="preview" class="preview"></article>
+      </div>
+    </section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
