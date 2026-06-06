@@ -38,7 +38,7 @@ from app.modules.prgm_engine import generate_txt_files, validate_blueprint
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "static"
 
-app = FastAPI(title="LectureNote Suite", version="1.8.0")
+app = FastAPI(title="LectureNote Suite", version="1.9.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"], allow_credentials=False)
 app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
 init_db()
@@ -214,14 +214,14 @@ def _markdown_to_docx_bytes(title: str, markdown: str) -> BytesIO:
 
 @app.get("/health")
 def health():
-    return {"ok": True, "service": "lecturenote-suite", "version": "1.8.0"}
+    return {"ok": True, "service": "lecturenote-suite", "version": "1.9.0"}
 
 
 @app.get("/", response_class=HTMLResponse)
 def root():
     return _page("LectureNote Suite", """
-<section class="top"><div><h1>LectureNote Suite</h1><p>강의자료, 교재, 전사본, 시험지, 외부 정리본을 한 곳에 올리고 GPT Actions와 연결합니다.</p><div class="nav"><a class="btn" href="/upload">자료 업로드</a><a class="btn secondary" href="/sources/manage">파일 관리</a><a class="btn secondary" href="/static/solvepad/index.html">SolvePad</a><a class="btn secondary" href="/static/casio/index.html">계산기 PRGM</a></div></div></section>
-<section class="grid"><div class="card"><h2>통합 자료 업로드</h2><p>일반 자료와 외부 정리본을 자료 유형으로 구분해 한 화면에서 올립니다. 제목은 파일명으로 자동 지정됩니다.</p><div class="actions"><a class="btn" href="/upload">열기</a></div></div><div class="card"><h2>SolvePad 문제풀이</h2><p>GPT가 만든 문제팩을 iPad에서 불러오고 필기 풀이를 저장합니다.</p><div class="actions"><a class="btn" href="/static/solvepad/index.html">열기</a></div></div><div class="card"><h2>CASIO 계산기 PRGM</h2><p>GPT가 생성한 계산기 코드와 사용법/구조 해설을 확인합니다.</p><div class="actions"><a class="btn" href="/static/casio/index.html">열기</a></div></div><div class="card"><h2>관리 / 상태</h2><p>업로드 파일 삭제, 매핑 현황, API 문서를 확인합니다.</p><div class="actions"><a class="btn secondary" href="/sources/manage">파일 관리</a><a class="btn secondary" href="/mapping/status">매핑</a><a class="btn secondary" href="/docs">API</a></div></div></section>""")
+<section class="top"><div><h1>LectureNote Suite</h1><p>강의자료, 교재, 전사본, 시험지, 외부 정리본을 한 곳에 올리고 GPT Actions와 연결합니다.</p><div class="nav"><a class="btn" href="/upload">자료 업로드</a><a class="btn secondary" href="/static/study/index.html">정리본 보기</a><a class="btn secondary" href="/sources/manage">파일 관리</a><a class="btn secondary" href="/static/solvepad/index.html">SolvePad</a><a class="btn secondary" href="/static/casio/index.html">계산기 PRGM</a></div></div></section>
+<section class="grid"><div class="card"><h2>통합 자료 업로드</h2><p>강의자료, 교재, 전사본, 시험지, GPT 생성 정리본, 외부 정리본을 자료 유형으로 구분해 한 화면에서 올립니다. 제목은 파일명으로 자동 지정됩니다.</p><div class="actions"><a class="btn" href="/upload">열기</a></div></div><div class="card"><h2>정리본 / Study Note</h2><p>GPT 생성 정리본, 외부 정리본, 시험 직전 정리, 계산기 사용법을 열고 수정·저장·내보내기합니다.</p><div class="actions"><a class="btn" href="/static/study/index.html">열기</a></div></div><div class="card"><h2>SolvePad 문제풀이</h2><p>GPT가 만든 문제팩을 iPad에서 불러오고 필기 풀이를 저장합니다.</p><div class="actions"><a class="btn" href="/static/solvepad/index.html">열기</a></div></div><div class="card"><h2>CASIO 계산기 PRGM</h2><p>GPT가 생성한 계산기 코드와 사용법/구조 해설을 확인합니다.</p><div class="actions"><a class="btn" href="/static/casio/index.html">열기</a></div></div><div class="card"><h2>관리 / 상태</h2><p>업로드 파일 삭제, 매핑 현황, API 문서를 확인합니다.</p><div class="actions"><a class="btn secondary" href="/sources/manage">파일 관리</a><a class="btn secondary" href="/mapping/status">매핑</a><a class="btn secondary" href="/docs">API</a></div></div></section>""")
 
 
 @app.get("/upload", response_class=HTMLResponse)
@@ -439,8 +439,18 @@ def save_transcript_revision_endpoint(payload: TranscriptRevisionSave):
 
 
 @app.post("/unit-maps", dependencies=[Depends(require_auth)])
-def save_unit_map_endpoint(payload: UnitMapSave):
-    return save_unit_map(payload.title, payload.source_ids, payload.map, payload.created_by)
+def save_unit_map_endpoint(payload: dict):
+    title = str(payload.get("title") or "Unit Map")
+    source_ids = payload.get("source_ids") or payload.get("sourceIds") or []
+    if isinstance(source_ids, str):
+        source_ids = [source_ids]
+    if not isinstance(source_ids, list):
+        source_ids = []
+    map_json = payload.get("map") or payload.get("map_json") or payload.get("mapJson") or payload.get("mapping")
+    if not isinstance(map_json, dict):
+        raise HTTPException(status_code=422, detail="Unit map payload must include object field: map")
+    created_by = str(payload.get("created_by") or payload.get("createdBy") or "gpt")
+    return save_unit_map(title, source_ids, map_json, created_by)
 
 
 @app.get("/unit-maps")

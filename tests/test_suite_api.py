@@ -538,3 +538,26 @@ def test_study_note_editor_and_exam_cram_flow():
 
 def test_static_study_app_exists():
     assert client.get("/static/study/index.html").status_code == 200
+
+def test_home_contains_study_note_studio_link():
+    response = client.get("/")
+    assert response.status_code == 200
+    text = response.text
+    assert "/static/study/index.html" in text
+    assert "정리본" in text or "Study Note" in text
+
+
+def test_save_unit_map_accepts_mapping_alias():
+    response = client.post("/unit-maps", json={
+        "title": "Alias Unit Map",
+        "sourceIds": [],
+        "mapping": {
+            "schemaVersion": "lecturenote.unitMap.v2",
+            "mappingBasis": "lecture_slides",
+            "units": [],
+            "unmapped": []
+        },
+        "createdBy": "gpt"
+    })
+    assert response.status_code == 200
+    assert response.json()["title"] == "Alias Unit Map"

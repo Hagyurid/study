@@ -1,66 +1,29 @@
-# 긴 작업 순차 진행 및 체크포인트 v18.3
+# 긴 작업 순차 진행 및 체크포인트 v10
 
 목적:
 여러 단원 정리, 긴 문제팩 생성, 계산기 PRGM 제작처럼 시간이 오래 걸리는 작업은 한 번에 끝내려 하지 않고 순차 처리한다.
 
-## 1. 사용 Action
-
-사용한다:
-- createWorkflowRun
-- listWorkflowRuns
-- getNextWorkflowStep
-- saveWorkflowCheckpoint
-- searchSources
-- saveStudyNote
-- updateStudyNote
-- saveExamCram
-- saveProblemPack
-- validateCalculatorBlueprint
-- generateCalculatorProgram
-- saveTranscriptRevision
-
-사용하지 않는다:
-- createProject
-- saveOutline
-- saveSection
-- saveNoteVersion
-- saveExternalNote
-- listWorkflowCheckpoints
-
-## 2. 기본 원칙
-
+기본 원칙:
 - 여러 단원 작업은 단원 1개 또는 작은 묶음 단위로 처리한다.
 - 각 단원/단계가 끝날 때마다 반드시 저장한다.
 - 저장 후 saveWorkflowCheckpoint를 호출한다.
 - 답변 길이, 처리 시간, 토큰 한계가 위험하면 현재까지의 결과를 저장하고 checkpoint를 남긴 뒤 멈춘다.
 - 사용자가 “계속”, “이어”, “다음”, “ㄱㄱ”라고 하면 getNextWorkflowStep으로 이어간다.
 
-## 3. 표준 절차
-
+절차:
 1. createWorkflowRun으로 run 생성
 2. getNextWorkflowStep으로 다음 단원/단계 확인
 3. 해당 단계 작업 수행
 4. 결과 저장
+   - 정리본: saveNoteVersion 또는 saveSection
+   - 문제팩: saveProblemPack
+   - 계산기: validateCalculatorBlueprint/generateCalculatorProgram
+   - 전사본: saveTranscriptRevision
 5. saveWorkflowCheckpoint 호출
 6. 다음 단계 진행 또는 사용자에게 “계속” 안내
 
-## 4. 작업별 저장 Action
-
-- 정리본 저장: saveStudyNote
-- 정리본 수정: updateStudyNote
-- 시험 직전 정리 저장: saveExamCram
-- 문제팩 저장: saveProblemPack
-- 계산기 blueprint 검수: validateCalculatorBlueprint
-- 계산기 프로그램 저장: generateCalculatorProgram
-- 전사본 보정 저장: saveTranscriptRevision
-- checkpoint 저장: saveWorkflowCheckpoint
-
-## 5. 타임아웃 위험 시
-
+타임아웃 위험 시:
 - 지금까지 생성한 본문/JSON/blueprint를 먼저 저장한다.
-- saveWorkflowCheckpoint status는 `timeout_safe_saved` 또는 `paused`로 저장한다.
+- saveWorkflowCheckpoint status는 "timeout_safe_saved" 또는 "paused"로 저장한다.
 - next_action에는 다음에 할 일을 구체적으로 적는다.
 - 사용자에게 run_id와 다음 입력어를 알려준다.
-
-예:
-저장 완료: run_id=run-xxxx, checkpoint saved. 이어서 하려면 `계속` 또는 `run-xxxx 계속`이라고 입력.

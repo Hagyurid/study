@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LectureNote Suite Actions
-  version: 1.8.3
+  version: 1.9.0
 servers:
   - url: https://study-xqe8.onrender.com
 
@@ -47,7 +47,7 @@ paths:
   /sources/search:
     post:
       operationId: searchSources
-      summary: Search saved source chunks by subject, source type, and query.
+      summary: Search saved source chunks.
       requestBody:
         required: true
         content:
@@ -93,7 +93,7 @@ paths:
   /workflow/options:
     get:
       operationId: getWorkflowOptions
-      summary: Get subjects, sources, units, unit maps, and available work modes.
+      summary: Get subjects, sources, units, unit maps, and work modes.
       parameters:
         - name: subject
           in: query
@@ -107,7 +107,7 @@ paths:
   /workflow/plans:
     post:
       operationId: createWorkflowPlan
-      summary: Save a selected subject, unit, and work mode plan.
+      summary: Save a selected workflow plan.
       requestBody:
         required: true
         content:
@@ -247,7 +247,7 @@ paths:
   /unit-maps:
     post:
       operationId: saveUnitMap
-      summary: Save a GPT-generated unit map.
+      summary: Save a GPT-generated unit map. Use field map for the unit map object.
       requestBody:
         required: true
         content:
@@ -265,6 +265,11 @@ paths:
                   items:
                     type: string
                 map:
+                  type: object
+                  description: Unit map JSON object. The server also accepts map_json, mapJson, or mapping for compatibility.
+                map_json:
+                  type: object
+                mapping:
                   type: object
                 created_by:
                   type: string
@@ -312,7 +317,7 @@ paths:
           description: Study notes.
     post:
       operationId: saveStudyNote
-      summary: Save a markdown study note, external note, or calculator manual.
+      summary: Save a markdown study note.
       requestBody:
         required: true
         content:
@@ -385,7 +390,7 @@ paths:
   /exam-cram:
     post:
       operationId: saveExamCram
-      summary: Save a two to three page pre-exam cram sheet as markdown.
+      summary: Save a pre-exam cram sheet as markdown.
       requestBody:
         required: true
         content:
@@ -539,7 +544,7 @@ paths:
   /calculator/generate:
     post:
       operationId: generateCalculatorProgram
-      summary: Generate CASIO PRGM TXT files from a blueprint and save manual.
+      summary: Generate CASIO PRGM TXT files from a blueprint.
       requestBody:
         required: true
         content:
