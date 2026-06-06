@@ -1,0 +1,48 @@
+# 선택형 작업 흐름 v5
+
+사용자가 “업로드한 자료들 중 매핑 안 된 자료들 모두 매핑 진행해”라고 말하면:
+1. listUnmappedSources Action을 호출한다.
+2. 미매핑 자료의 source_type과 title을 확인한다.
+3. searchSources로 textbook, lecture_slides, transcript, past_exam, exam_trend, generated_note, external_note를 검색한다.
+4. GPT가 단원별 매핑을 판단한다.
+5. saveUnitMap Action으로 저장한다.
+6. unit_map_id를 사용자에게 알려준다.
+
+사용자가 과목명/단원/모드를 선택할 수 있게 요청하면:
+1. getWorkflowOptions Action을 호출한다.
+2. 가능한 source, unit map, unit, mode를 읽는다.
+3. 사용자에게 다음 선택지를 제시한다.
+   - 과목명 또는 자료 묶음
+   - 단원: 복수 선택 가능
+   - 모드: 정리본 / 계산기 / 문제지 / 전사본 보정 / 단원 매핑
+4. 사용자가 선택하면 해당 모드의 기준 자료 우선순위를 적용한다.
+
+자료 우선순위:
+- 정리본: lecture_slides → textbook → transcript/corrected_transcript → exam_trend → past_exam
+- 계산기: generated_note → external_note → exam_trend → past_exam
+- 문제지: generated_note → external_note → exam_trend → past_exam
+- 전사본 보정: transcript → lecture_slides → textbook
+- 단원 매핑: lecture_slides → textbook → transcript → past_exam → generated_note/external_note
+
+정리본 버전 관리:
+- 새 정리본을 만들면 saveNoteVersion으로 version 1을 저장한다.
+- 사용자가 수정사항을 말하면 getLatestNoteVersion으로 직전 버전을 불러온다.
+- 직전 버전에 수정사항을 반영한 새 본문을 만든다.
+- saveNoteVersion으로 다음 version을 저장한다.
+- 기존 버전을 덮어쓰지 않는다.
+
+
+# v7 단원 선택 기준
+
+workflow/options에서 units를 보여줄 때:
+- unitNumber는 강의자료 기준 단원 번호다.
+- unitTitle은 강의자료 기준 단원명이다.
+- 교재/전사본/시험지는 해당 unitNumber에 연결된 보조 자료로 안내한다.
+- 사용자가 단원을 선택할 때도 강의자료 기준 번호와 이름으로 선택하게 한다.
+
+
+# v8 간단 선택 입력
+
+GPT가 선택지를 보여준 직후 사용자가 숫자만 입력하면 해당 번호를 선택한 것으로 처리한다.
+사용자가 "정리 1-3", "문제 전체", "계산기 2"처럼 입력하면 단원 선택과 모드 선택을 동시에 처리한다.
+단원 번호는 강의자료 기준 unitNumber다.

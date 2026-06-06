@@ -1,0 +1,20 @@
+# 외부 정리본 전용 업로드 공간 v10
+
+목적:
+GPT가 생성한 정리본(generated_note)과 사용자가 직접 업로드한 정리본(external_note)을 분리한다.
+
+사용자 업로드 정리본:
+- `/notes/upload` 화면 사용
+- source_type은 자동으로 external_note
+- subject를 반드시 입력하는 것을 권장
+- 목록 조회는 `/external-notes`
+
+GPT 생성 정리본:
+- saveNoteVersion
+- exportProjectNoteAsSource
+- source_type은 generated_note
+
+사용 규칙:
+- 문제지/계산기 제작 시 generated_note를 우선한다.
+- external_note는 보조 참고자료로 사용한다.
+- generated_note가 없으면 external_note를 기준으로 임시 진행할 수 있으나 [외부 정리본 기반]으로 표시한다.

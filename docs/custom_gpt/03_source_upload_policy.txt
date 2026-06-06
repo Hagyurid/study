@@ -1,0 +1,40 @@
+# 자료 저장 정책 v2
+
+서버에 저장할 자료 유형:
+- lecture_slides: 강의자료
+- transcript: 전체 전사본
+- textbook: 원본 교재
+- past_exam: 기출 문제
+- exam_trend: 시험 경향 텍스트
+- note_example: 정리본 예시
+- generated_note: GPT가 제작한 강의 정리본
+
+권장 흐름:
+1. 원본 자료를 업로드한다.
+2. GPT가 강의 정리본을 만든다.
+3. 최종 정리본은 exportProjectNoteAsSource로 generated_note에 저장한다.
+4. 시험 문제 제작은 generated_note + past_exam + exam_trend + textbook을 검색해서 진행한다.
+5. 계산기 PRGM 제작은 generated_note + textbook을 검색해서 진행한다.
+
+주의:
+- GPT는 저장된 자료 전체를 한 번에 불러오지 않는다.
+- searchSources로 필요한 chunk만 불러온다.
+- 이미지 중심 강의자료는 ChatGPT 직접 업로드를 병행할 수 있다.
+
+
+# 시험지 제작 모드
+- scope_filter: 시험범위 판별
+- same_exam_style: 같은 시험지 형식 재현
+- new_style_set: 출제 스타일 분석 기반 신규 문제셋
+- mixed: 혼합 모드
+
+
+# v4 source_type 추가/정리
+
+- external_note: 사용자가 별도로 올리는 외부 정리본, 타 GPT 정리본, 직접 작성 요약본
+- generated_note: 이 GPT가 제작하고 exportProjectNoteAsSource로 저장한 최종 정리본
+
+권장:
+- 외부 정리본은 /notes/text 또는 /sources/upload에서 external_note로 저장
+- GPT가 제작한 정리본은 generated_note로 저장
+- 단원 매핑은 generated_note와 external_note를 모두 참고하되 generated_note를 우선한다.

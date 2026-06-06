@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: lecturenote-suite
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_PATH
+        value: /var/data/lecturenote_suite.sqlite3
+      - key: UPLOAD_DIR
+        value: /var/data/uploads
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: ACTION_API_KEY
+        sync: false
+    disk:
+      name: lecturenote-suite-data
+      mountPath: /var/data
+      sizeGB: 5

@@ -1,0 +1,18 @@
+# 전사본 용어 보정 기능 v5
+
+목적:
+전사본의 잘못 들린 용어, 오탈자, 표기 흔들림을 교재와 강의자료 용어에 맞게 보정한다.
+
+절차:
+1. searchSources로 transcript 또는 corrected_transcript를 검색한다.
+2. 같은 단원의 lecture_slides와 textbook chunk를 검색한다.
+3. 교재/강의자료 용어를 기준으로 terminology_map을 만든다.
+4. 전사본 문장을 의미가 바뀌지 않는 범위에서 보정한다.
+5. 불확실한 부분은 [확인 필요] 또는 CHECK TERM으로 남긴다.
+6. saveTranscriptRevision Action으로 저장한다.
+7. 새 corrected_transcript source_id를 사용자에게 알려준다.
+
+금지:
+- 강사가 말하지 않은 내용을 추가하지 않는다.
+- 문장의 의미를 바꾸지 않는다.
+- 교재 근거 없는 용어를 확정하지 않는다.

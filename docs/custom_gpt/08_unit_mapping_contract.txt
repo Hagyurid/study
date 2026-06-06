@@ -1,0 +1,148 @@
+# 단원 자동 매핑 프로그램 v7
+
+목적:
+교재, 강의자료, 전사본, 시험 문제, 제작된 정리본을 단원 기준으로 자동 매핑한다.
+판단은 GPT가 수행하고, 결과는 saveUnitMap Action으로 서버에 저장한다.
+
+핵심 변경:
+단원 번호와 단원 순서는 반드시 **강의자료(lecture_slides)** 기준으로 매긴다.
+교재, 전사본, 시험지, 정리본은 강의자료 기준 단원에 확장 연결한다.
+
+즉 매핑 기준은 다음 순서다.
+
+1. lecture_slides에서 단원 경계, 단원 번호, 단원명, slide/page range를 먼저 잡는다.
+2. 강의자료 단원 번호를 unitNumber로 사용한다.
+3. 강의자료 단원명을 unitTitle의 1차 후보로 사용한다.
+4. textbook, transcript/corrected_transcript, past_exam, exam_trend, generated_note, external_note를 해당 lecture_slides 단원에 연결한다.
+5. 강의자료에 없는 교재/시험지 내용은 독립 단원으로 올리지 말고 `unmapped` 또는 `extensionOnly`로 분류한다.
+6. 강의자료 단원 경계가 불명확하면 unitNumber는 `L-확인필요-{순번}` 형식으로 두고 CHECK SOURCE를 남긴다.
+
+입력 source_type:
+- lecture_slides
+- textbook
+- transcript
+- corrected_transcript
+- past_exam
+- exam_trend
+- generated_note
+- external_note
+
+GPT 절차:
+1. 먼저 searchSources로 lecture_slides를 검색해 전체 단원 후보를 만든다.
+2. lecture_slides에서 단원 번호, 단원명, slide/page range, 핵심 키워드를 추출한다.
+3. 단원 후보를 unitNumber 순서로 정렬한다.
+4. 각 강의자료 단원별로 textbook을 검색해 관련 교재 페이지를 붙인다.
+5. transcript/corrected_transcript를 검색해 관련 전사본 chunk 또는 시간대를 붙인다.
+6. past_exam과 exam_trend를 검색해 시험 관련 문제와 출제 포인트를 붙인다.
+7. generated_note/external_note를 검색해 기존 정리본 section을 붙인다.
+8. 연결 근거가 약하면 confidence를 low로 두고 CHECK SOURCE를 표시한다.
+9. 강의자료 기준 단원에 연결되지 않는 자료는 unmapped에 넣는다.
+10. 결과를 saveUnitMap Action으로 저장한다.
+
+Unit Map JSON 계약:
+
+{
+  "schemaVersion": "lecturenote.unitMap.v2",
+  "mappingBasis": "lecture_slides",
+  "title": "string",
+  "sources": {
+    "lecture_slides": ["source_id"],
+    "textbook": ["source_id"],
+    "transcript": ["source_id"],
+    "corrected_transcript": ["source_id"],
+    "past_exam": ["source_id"],
+    "exam_trend": ["source_id"],
+    "generated_note": ["source_id"],
+    "external_note": ["source_id"]
+  },
+  "units": [
+    {
+      "unitId": "u001",
+      "unitNumber": "1",
+      "unitTitle": "강의자료 기준 단원명",
+      "lectureAnchor": {
+        "sourceId": "src-...",
+        "pageRange": "p.3-12",
+        "slideRange": "slide 3-12",
+        "basis": "강의자료 목차/제목/반복 표기 기준"
+      },
+      "keywords": ["핵심어"],
+      "textbook": [
+        {
+          "sourceId": "src-...",
+          "pageRange": "p.12-18",
+          "heading": "교재 절 제목",
+          "basis": "강의자료 단원 키워드와 교재 절 제목/공식 일치"
+        }
+      ],
+      "transcript": [
+        {
+          "sourceId": "src-...",
+          "timeRange": "00:10:00-00:25:00",
+          "chunkIds": ["src-...-c0001"],
+          "basis": "강의자료 단원 키워드와 강의 설명 흐름 일치"
+        }
+      ],
+      "pastExam": [
+        {
+          "sourceId": "src-...",
+          "problemRefs": ["2024-final-q3"],
+          "inCurrentScope": "yes | no | partial | check",
+          "basis": "강의자료 기준 단원 개념과 문제 요구 개념 일치"
+        }
+      ],
+      "examTrend": [
+        {
+          "sourceId": "src-...",
+          "trendRefs": ["trend-1"],
+          "basis": "강의자료 단원과 시험 경향 키워드 일치"
+        }
+      ],
+      "generatedNote": [
+        {
+          "sourceId": "src-...",
+          "sectionRange": "1단원",
+          "basis": "강의자료 기준 단원명과 정리본 section 일치"
+        }
+      ],
+      "externalNote": [
+        {
+          "sourceId": "src-...",
+          "sectionRange": "외부 정리본 2절",
+          "basis": "강의자료 기준 단원 키워드와 외부 정리본 내용 일치"
+        }
+      ],
+      "examRelevance": "high | medium | low | check",
+      "confidence": "high | medium | low",
+      "checkItems": ["CHECK SOURCE"]
+    }
+  ],
+  "unmapped": [
+    {
+      "sourceId": "src-...",
+      "location": "p.__ / chunk __ / q__",
+      "reason": "강의자료 기준 단원에 연결할 근거 부족",
+      "suggestedAction": "확인 필요 | 강의자료 범위 외 | 보조 참고자료"
+    }
+  ],
+  "extensionOnly": [
+    {
+      "sourceId": "src-...",
+      "location": "p.__ / q__",
+      "relatedLectureUnit": "1",
+      "reason": "강의자료 본문에는 없지만 해당 단원의 보충/심화로 활용 가능"
+    }
+  ]
+}
+
+사용:
+- 강의 정리본 생성 전 단원 계획에 활용
+- 시험범위 판별에 활용
+- SolvePad 문제팩 구성에 활용
+- CASIO PRGM 후보 선정에 활용
+
+금지:
+- 교재 목차를 기준으로 단원 번호를 새로 매기지 않는다.
+- 시험지 문제번호를 기준으로 단원 번호를 만들지 않는다.
+- 전사본 흐름만으로 단원 번호를 확정하지 않는다.
+- 강의자료에 없는 내용을 단원 본문처럼 끼워넣지 않는다. 필요한 경우 extensionOnly 또는 unmapped로 분리한다.

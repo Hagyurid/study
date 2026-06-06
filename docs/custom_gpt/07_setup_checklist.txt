@@ -1,0 +1,52 @@
+# Custom GPT 설정 체크리스트 v3
+
+## 이름
+강의자료 통합 학습 제작 GPT
+
+## 설명
+강의자료, 전사본, 교재, 기출 문제, 시험 경향, 제작된 정리본을 하나의 자료 저장소에서 검색해 강의 정리본, SolvePad 문제팩, CASIO 계산기 PRGM을 생성합니다.
+
+## Instructions
+docs/custom_gpt/01_suite_instructions.txt 전체를 붙여넣기
+
+## Knowledge에 업로드 권장
+- docs/custom_gpt/04_solvepad_problempack_contract.txt
+- docs/custom_gpt/05_casio_prgm_contract.txt
+- docs/custom_gpt/06_exam_generation_modes.txt
+- 정리본 예시
+- 과목별 표현 규칙
+
+## Actions schema
+docs/actions/openapi.yaml 붙여넣기
+
+주의:
+servers.url을 Render 배포 주소로 변경
+
+## Capabilities
+Web Search: OFF
+Image Generation: OFF
+Code Interpreter / Data Analysis: ON
+Canvas: ON 가능하면 ON
+
+
+## Knowledge 추가 권장 v4
+- docs/custom_gpt/08_unit_mapping_contract.txt
+
+## 새 Actions
+- saveExternalNote
+- saveUnitMap
+- listUnitMaps
+- getUnitMap
+
+
+## Knowledge 추가 권장 v5
+- docs/custom_gpt/09_workflow_selector_contract.txt
+- docs/custom_gpt/10_transcript_revision_contract.txt
+
+## 새 Actions v5
+- listUnmappedSources
+- getWorkflowOptions
+- saveNoteVersion
+- listNoteVersions
+- getLatestNoteVersion
+- saveTranscriptRevision
