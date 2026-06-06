@@ -290,3 +290,70 @@ CRE 매핑 정보
 미매핑 자료 뭐 있어?
 src-xxxx 삭제
 ```
+
+
+## v12 UI 및 다중 업로드
+
+v12는 브라우저 UI를 개선하고, 여러 파일을 한 번에 업로드할 수 있게 수정합니다.
+
+추가/변경:
+
+```text
+/upload: 여러 파일 선택 가능
+/notes/upload: 여러 외부 정리본 선택 가능
+/sources/manage: 정돈된 파일 관리 UI
+POST /sources/upload-batch: 다중 파일 업로드
+```
+
+제목은 선택사항입니다. 비워두면 파일명이 자동 제목으로 저장됩니다.
+
+권장 사용:
+
+```text
+Action key: ACTION_API_KEY 값
+Subject: CRE 같은 과목명, 선택사항이지만 입력 권장
+Source type: 자료 유형 선택
+Title: 비워두면 파일명 자동 사용
+Files: 여러 개 선택 가능
+```
+
+
+## v12 UI + multi upload
+
+v12 improves the built-in web UI.
+
+- Modern dashboard home page
+- Cleaner upload page
+- Multiple file upload support at `/sources/upload-batch`
+- Optional title field; file names are used automatically when title is empty
+- Improved external note upload page
+- Improved source management page
+
+Recommended user links:
+
+```text
+/upload
+/notes/upload
+/sources/manage
+```
+
+
+## v13 SolvePad fix
+
+SolvePad에서 문제/보기/해설의 LaTeX 수식 렌더링을 MathJax 기반으로 보강했습니다. 풀이 작성란은 Apple Pencil 필기를 유지하면서 두 손가락 확대/축소 및 좌우/상하 이동을 지원합니다. JSON 붙여넣기 시 일부 LaTeX 단일 백슬래시 문제를 자동 보정합니다.
+
+
+## v14 SolvePad iPad 필기 안정화
+
+SolvePad에서 iPad Safari가 캔버스 필기 중 텍스트 선택/복사 툴바를 띄우는 문제를 막았습니다.
+
+수정:
+
+```text
+static/solvepad/index.html
+static/solvepad/styles.css
+static/solvepad/app.js
+tests/test_solvepad_static_v13.py
+```
+
+배포 후 Safari에서 페이지를 새로고침하고 문제가 남으면 웹사이트 데이터 캐시를 삭제하세요.

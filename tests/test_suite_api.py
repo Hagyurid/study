@@ -347,3 +347,19 @@ def test_mapping_status_and_delete_source_flow():
     status_after = client.get("/mapping/status?subject=CRE")
     assert status_after.status_code == 200
     assert not any(s["sourceId"] == source_id for s in status_after.json()["unmappedSources"])
+
+
+def test_batch_upload_with_inferred_titles():
+    files = [
+        ("files", ("week1.txt", b"batch reactor notes", "text/plain")),
+        ("files", ("week2.txt", b"cstr notes", "text/plain")),
+    ]
+    response = client.post(
+        "/sources/upload-batch",
+        data={"subject": "CRE", "source_type": "lecture_slides", "title": ""},
+        files=files,
+    )
+    assert response.status_code == 200
+    assert "업로드 완료" in response.text
+    assert "week1" in response.text
+    assert "week2" in response.text
