@@ -40,7 +40,7 @@ from app.modules.prgm_engine import generate_txt_files, validate_blueprint
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "static"
 
-app = FastAPI(title="LectureNote Suite", version="2.2.0")
+app = FastAPI(title="LectureNote Suite", version="2.2.1")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"], allow_credentials=False)
 app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
 init_db()
@@ -174,7 +174,33 @@ async def _save_uploaded_file(file: UploadFile, source_type: str, subject: str, 
 
 
 def _upload_result(results: List[dict], subject: str = "") -> HTMLResponse:
-    rows = "".join(f"<tr><td><code>{escape(r.get('source_id',''))}</code></td><td>{escape(r.get('title',''))}</td><td>{escape(r.get('subject',''))}</td><td><span class='pill'>{escape(r.get('source_type',''))}</span>{('<div class=\'hint\'>범위: ' + escape(EXAM_SCOPE_LABELS.get(r.get('exam_scope_status','unknown'), r.get('exam_scope_status','unknown'))) + '<br/>방식: ' + escape(EXAM_USAGE_LABELS.get(r.get('exam_usage_mode','style_generation'), r.get('exam_usage_mode','style_generation'))) + '</div>') if r.get('source_type') == 'past_exam' else ''}</td><td>{r.get('chunk_count',0)}</td><td>{escape(r.get('extract_status',''))}</td></tr>" for r in results)
+    row_parts = []
+    for r in results:
+        source_type = r.get("source_type", "")
+        exam_hint = ""
+        if source_type == "past_exam":
+            scope_status = r.get("exam_scope_status", "unknown")
+            usage_mode = r.get("exam_usage_mode", "style_generation")
+            scope_label = EXAM_SCOPE_LABELS.get(scope_status, scope_status)
+            usage_label = EXAM_USAGE_LABELS.get(usage_mode, usage_mode)
+            exam_hint = (
+                "<div class='hint'>"
+                f"범위: {escape(scope_label)}"
+                "<br/>"
+                f"방식: {escape(usage_label)}"
+                "</div>"
+            )
+        row_parts.append(
+            "<tr>"
+            f"<td><code>{escape(r.get('source_id', ''))}</code></td>"
+            f"<td>{escape(r.get('title', ''))}</td>"
+            f"<td>{escape(r.get('subject', ''))}</td>"
+            f"<td><span class='pill'>{escape(source_type)}</span>{exam_hint}</td>"
+            f"<td>{r.get('chunk_count', 0)}</td>"
+            f"<td>{escape(r.get('extract_status', ''))}</td>"
+            "</tr>"
+        )
+    rows = "".join(row_parts)
     return _page("업로드 완료", f"<section class='top'><div><h1>업로드 완료</h1><p>{len(results)}개 파일을 저장했습니다.</p></div><div class='nav'><a class='btn secondary' href='/upload'>추가 업로드</a><a class='btn' href='/sources/manage?subject={escape(subject)}'>파일 관리</a></div></section><section class='card'><table><thead><tr><th>source_id</th><th>제목</th><th>과목</th><th>유형</th><th>chunks</th><th>상태</th></tr></thead><tbody>{rows}</tbody></table></section>")
 
 
@@ -286,7 +312,7 @@ def _markdown_to_docx_bytes(title: str, markdown: str) -> BytesIO:
 
 @app.get("/health")
 def health():
-    return {"ok": True, "service": "lecturenote-suite", "version": "2.2.0"}
+    return {"ok": True, "service": "lecturenote-suite", "version": "2.2.1"}
 
 
 @app.get("/", response_class=HTMLResponse)
