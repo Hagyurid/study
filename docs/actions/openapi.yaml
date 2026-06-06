@@ -1,679 +1,567 @@
 openapi: 3.1.0
 info:
   title: LectureNote Suite Actions
-  version: 1.3.0
+  version: 1.8.3
 servers:
-  - url: https://YOUR-RENDER-SERVICE.onrender.com
+  - url: https://study-xqe8.onrender.com
+
 components:
+  schemas: {}
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
+
 security:
   - bearerAuth: []
-paths:
 
+paths:
   /mapping/status:
     get:
       operationId: getMappingStatus
-      summary: Show what sources and units are mapped or unmapped
+      summary: Show mapped and unmapped sources, units, and missing references.
       parameters:
         - name: subject
           in: query
           required: false
-          schema: {type: string}
+          schema:
+            type: string
       responses:
-        "200": {description: Mapping status}
+        "200":
+          description: Mapping status.
 
   /sources/{source_id}:
     delete:
       operationId: deleteSource
-      summary: Delete an uploaded source, extracted chunks, and local file when available
+      summary: Delete an uploaded source and extracted chunks.
       parameters:
         - name: source_id
           in: path
           required: true
-          schema: {type: string}
+          schema:
+            type: string
       responses:
-        "200": {description: Deleted source}
+        "200":
+          description: Deleted source.
 
   /sources/search:
     post:
       operationId: searchSources
-      summary: Search saved source chunks
+      summary: Search saved source chunks by subject, source type, and query.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [query]
+              required:
+                - query
               properties:
-                query: {type: string}
+                query:
+                  type: string
+                subject:
+                  type: string
                 source_types:
                   type: array
-                  items: {type: string}
-                subject: {type: string}
-                limit: {type: integer}
+                  items:
+                    type: string
+                limit:
+                  type: integer
       responses:
-        "200": {description: Search results}
-  /sources/text:
-    post:
-      operationId: saveTextSource
-      summary: Save generated or external markdown/text as searchable source chunks
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [title, text]
-              properties:
-                title: {type: string}
-                subject: {type: string}
-                source_type: {type: string}
-                text: {type: string}
-                original_name: {type: string}
-      responses:
-        "200": {description: Saved source}
-  /notes/text:
-    post:
-      operationId: saveExternalNote
-      summary: Save an external lecture note or prior summary
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [title, text]
-              properties:
-                title: {type: string}
-                subject: {type: string}
-                source_type: {type: string}
-                text: {type: string}
-                original_name: {type: string}
-      responses:
-        "200": {description: Saved external note}
+        "200":
+          description: Search results.
+
   /sources/unmapped:
     get:
       operationId: listUnmappedSources
-      summary: List sources not covered by saved unit maps
+      summary: List sources not covered by saved unit maps.
       parameters:
         - name: source_type
           in: query
           required: false
-          schema: {type: string}
+          schema:
+            type: string
         - name: subject
           in: query
           required: false
-          schema: {type: string}
+          schema:
+            type: string
       responses:
-        "200": {description: Unmapped sources}
+        "200":
+          description: Unmapped sources.
+
   /workflow/options:
     get:
       operationId: getWorkflowOptions
-      summary: Get sources, unmapped sources, unit maps, units, and work modes, optionally filtered by subject
+      summary: Get subjects, sources, units, unit maps, and available work modes.
       parameters:
         - name: subject
           in: query
           required: false
-          schema: {type: string}
+          schema:
+            type: string
       responses:
-        "200": {description: Workflow options}
+        "200":
+          description: Workflow options.
+
   /workflow/plans:
     post:
       operationId: createWorkflowPlan
-      summary: Save a selected subject/unit/mode workflow plan
+      summary: Save a selected subject, unit, and work mode plan.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [title, selected_mode]
+              required:
+                - title
+                - selected_mode
               properties:
-                title: {type: string}
-                subject: {type: string}
+                title:
+                  type: string
+                subject:
+                  type: string
                 selected_units:
                   type: array
-                  items: {type: string}
-                selected_mode: {type: string}
-                unit_map_id: {type: string}
+                  items:
+                    type: string
+                selected_mode:
+                  type: string
+                unit_map_id:
+                  type: string
                 source_ids:
                   type: array
-                  items: {type: string}
+                  items:
+                    type: string
                 reference_priority:
                   type: array
-                  items: {type: string}
-                notes: {type: string}
+                  items:
+                    type: string
+                notes:
+                  type: string
       responses:
-        "200": {description: Saved workflow plan}
+        "200":
+          description: Saved workflow plan.
     get:
       operationId: listWorkflowPlans
-      summary: List saved workflow plans
+      summary: List saved workflow plans.
       responses:
-        "200": {description: Workflow plans}
-
-  /external-notes:
-    get:
-      operationId: listExternalNotes
-      summary: List user-uploaded external notes
-      parameters:
-        - name: subject
-          in: query
-          required: false
-          schema: {type: string}
-      responses:
-        "200": {description: External notes}
+        "200":
+          description: Workflow plans.
 
   /workflow/runs:
     post:
       operationId: createWorkflowRun
-      summary: Create a sequential long-running workflow run
+      summary: Create a sequential long-running workflow run.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [title, mode]
+              required:
+                - title
+                - mode
               properties:
-                title: {type: string}
-                mode: {type: string}
-                subject: {type: string}
+                title:
+                  type: string
+                mode:
+                  type: string
+                subject:
+                  type: string
                 selected_units:
                   type: array
-                  items: {type: string}
-                workflow_plan_id: {type: string}
-                total_steps: {type: integer}
-                metadata: {type: object}
+                  items:
+                    type: string
+                workflow_plan_id:
+                  type: string
+                total_steps:
+                  type: integer
+                metadata:
+                  type: object
       responses:
-        "200": {description: Created workflow run}
+        "200":
+          description: Created workflow run.
     get:
       operationId: listWorkflowRuns
-      summary: List workflow runs
+      summary: List workflow runs.
       parameters:
         - name: status
           in: query
           required: false
-          schema: {type: string}
+          schema:
+            type: string
       responses:
-        "200": {description: Workflow runs}
+        "200":
+          description: Workflow runs.
 
   /workflow/runs/{run_id}/next:
     get:
       operationId: getNextWorkflowStep
-      summary: Get next step for a sequential workflow run
+      summary: Get the next step for a workflow run.
       parameters:
         - name: run_id
           in: path
           required: true
-          schema: {type: string}
+          schema:
+            type: string
       responses:
-        "200": {description: Next workflow step}
+        "200":
+          description: Next workflow step.
 
   /workflow/checkpoints:
     post:
       operationId: saveWorkflowCheckpoint
-      summary: Save checkpoint after each long-running workflow step
+      summary: Save a checkpoint after a workflow step.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [run_id, step_index]
+              required:
+                - run_id
+                - step_index
               properties:
-                run_id: {type: string}
-                step_index: {type: integer}
-                step_label: {type: string}
-                status: {type: string}
-                saved_refs: {type: object}
-                next_action: {type: string}
-                notes: {type: string}
-                advance_to_next: {type: boolean}
+                run_id:
+                  type: string
+                step_index:
+                  type: integer
+                step_label:
+                  type: string
+                status:
+                  type: string
+                saved_refs:
+                  type: object
+                next_action:
+                  type: string
+                notes:
+                  type: string
+                advance_to_next:
+                  type: boolean
       responses:
-        "200": {description: Saved checkpoint}
+        "200":
+          description: Saved checkpoint.
 
-  /workflow/runs/{run_id}/checkpoints:
-    get:
-      operationId: listWorkflowCheckpoints
-      summary: List checkpoints for a workflow run
-      parameters:
-        - name: run_id
-          in: path
-          required: true
-          schema: {type: string}
-      responses:
-        "200": {description: Checkpoints}
-
-  /projects:
-    post:
-      operationId: createProject
-      summary: Create work project
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [title]
-              properties:
-                title: {type: string}
-                project_type: {type: string}
-                source_ids:
-                  type: array
-                  items: {type: string}
-                metadata: {type: object}
-      responses:
-        "200": {description: Created}
-  /projects/{project_id}/outline:
-    post:
-      operationId: saveOutline
-      summary: Save section outline
-      parameters:
-        - name: project_id
-          in: path
-          required: true
-          schema: {type: string}
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [sections]
-              properties:
-                sections:
-                  type: array
-                  items: {type: object}
-      responses:
-        "200": {description: Saved}
-  /projects/{project_id}/next:
-    get:
-      operationId: getNextSection
-      summary: Get next pending section
-      parameters:
-        - name: project_id
-          in: path
-          required: true
-          schema: {type: string}
-      responses:
-        "200": {description: Next section}
-  /projects/{project_id}/sections:
-    post:
-      operationId: saveSection
-      summary: Save generated lecture-note section
-      parameters:
-        - name: project_id
-          in: path
-          required: true
-          schema: {type: string}
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [section_index, content_markdown]
-              properties:
-                section_index: {type: integer}
-                title: {type: string}
-                content_markdown: {type: string}
-                study_direction: {type: string}
-                quality_report: {type: object}
-      responses:
-        "200": {description: Saved}
-  /projects/{project_id}/items/{item_type}:
-    post:
-      operationId: saveProjectItems
-      summary: Save image, textbook, exam, formula, design, check, or mapping support items
-      parameters:
-        - name: project_id
-          in: path
-          required: true
-          schema: {type: string}
-        - name: item_type
-          in: path
-          required: true
-          schema: {type: string}
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [items]
-              properties:
-                items:
-                  type: array
-                  items: {type: object}
-      responses:
-        "200": {description: Saved}
-  /projects/{project_id}/final-bundle:
-    get:
-      operationId: getFinalBundle
-      summary: Get project sections and items
-      parameters:
-        - name: project_id
-          in: path
-          required: true
-          schema: {type: string}
-      responses:
-        "200": {description: Final bundle}
-  /projects/{project_id}/export-note-source:
-    post:
-      operationId: exportProjectNoteAsSource
-      summary: Export saved lecture-note sections as generated_note source
-      parameters:
-        - name: project_id
-          in: path
-          required: true
-          schema: {type: string}
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                title: {type: string}
-      responses:
-        "200": {description: Exported}
-  /notes/versions:
-    post:
-      operationId: saveNoteVersion
-      summary: Save a lecture-note version for revision tracking
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [title, content_markdown]
-              properties:
-                title: {type: string}
-                content_markdown: {type: string}
-                subject: {type: string}
-                series_id: {type: string}
-                source_type: {type: string}
-                change_summary: {type: string}
-                based_on_version: {type: integer}
-                replace_latest: {type: boolean}
-      responses:
-        "200": {description: Saved note version}
-    get:
-      operationId: listNoteVersions
-      summary: List note versions
-      parameters:
-        - name: series_id
-          in: query
-          required: false
-          schema: {type: string}
-      responses:
-        "200": {description: Versions}
-  /notes/versions/{series_id}/latest:
-    get:
-      operationId: getLatestNoteVersion
-      summary: Get latest note version in a series
-      parameters:
-        - name: series_id
-          in: path
-          required: true
-          schema: {type: string}
-      responses:
-        "200": {description: Latest version}
-  /transcripts/revisions:
-    post:
-      operationId: saveTranscriptRevision
-      summary: Save transcript corrected using lecture slides and textbook terminology
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [title, corrected_text]
-              properties:
-                title: {type: string}
-                corrected_text: {type: string}
-                subject: {type: string}
-                original_transcript_source_id: {type: string}
-                terminology_map: {type: object}
-                change_log:
-                  type: array
-                  items: {type: object}
-      responses:
-        "200": {description: Saved transcript revision}
   /unit-maps:
     post:
       operationId: saveUnitMap
-      summary: Save GPT-generated mapping between textbook, slides, transcript, exams, and notes
+      summary: Save a GPT-generated unit map.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [title, map]
+              required:
+                - title
+                - map
               properties:
-                title: {type: string}
+                title:
+                  type: string
                 source_ids:
                   type: array
-                  items: {type: string}
-                map: {type: object}
-                created_by: {type: string}
+                  items:
+                    type: string
+                map:
+                  type: object
+                created_by:
+                  type: string
       responses:
-        "200": {description: Saved unit map}
+        "200":
+          description: Saved unit map.
     get:
       operationId: listUnitMaps
-      summary: List saved unit maps
+      summary: List saved unit maps.
       responses:
-        "200": {description: Unit map list}
-
-  /study/notes:
-    get:
-      operationId: listStudyNotes
-      summary: List generated notes, exam cram sheets, external notes, and calculator manuals
-      parameters:
-        - name: subject
-          in: query
-          required: false
-          schema: {type: string}
-        - name: source_type
-          in: query
-          required: false
-          schema: {type: string}
-      responses:
-        "200": {description: Study notes}
-    post:
-      operationId: saveStudyNote
-      summary: Save a markdown study note as a generated artifact
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [title, content_markdown]
-              properties:
-                title: {type: string}
-                content_markdown: {type: string}
-                subject: {type: string}
-                source_type: {type: string}
-                series_id: {type: string}
-                change_summary: {type: string}
-                replace_latest: {type: boolean}
-      responses:
-        "200": {description: Saved study note}
-
-  /exam-cram:
-    post:
-      operationId: saveExamCram
-      summary: Save a 2-3 page pre-exam cram sheet as markdown
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [title, content_markdown]
-              properties:
-                title: {type: string}
-                content_markdown: {type: string}
-                subject: {type: string}
-                series_id: {type: string}
-                change_summary: {type: string}
-                replace_latest: {type: boolean}
-      responses:
-        "200": {description: Saved exam cram sheet}
-
-  /study/notes/{source_id}:
-    get:
-      operationId: getStudyNote
-      summary: Get markdown content for a study note
-      parameters:
-        - name: source_id
-          in: path
-          required: true
-          schema: {type: string}
-      responses:
-        "200": {description: Study note content}
-    put:
-      operationId: updateStudyNote
-      summary: Replace markdown content for an existing study note
-      parameters:
-        - name: source_id
-          in: path
-          required: true
-          schema: {type: string}
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [content_markdown]
-              properties:
-                title: {type: string}
-                content_markdown: {type: string}
-                change_summary: {type: string}
-      responses:
-        "200": {description: Updated study note}
+        "200":
+          description: Unit maps.
 
   /unit-maps/{unit_map_id}:
     get:
       operationId: getUnitMap
-      summary: Get a saved unit map
+      summary: Get a saved unit map.
       parameters:
         - name: unit_map_id
           in: path
           required: true
-          schema: {type: string}
+          schema:
+            type: string
       responses:
-        "200": {description: Unit map}
-  /problem-packs:
-    post:
-      operationId: saveProblemPack
-      summary: Save a SolvePad problem pack and return import URL
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [title, pack]
-              properties:
-                title: {type: string}
-                pack: {type: object}
-      responses:
-        "200": {description: Saved}
+        "200":
+          description: Unit map.
 
-  /calculator/projects:
+  /study/notes:
     get:
-      operationId: listCalculatorProjects
-      summary: List saved CASIO calculator projects
+      operationId: listStudyNotes
+      summary: List generated notes, external notes, exam cram sheets, and calculator manuals.
       parameters:
         - name: subject
           in: query
           required: false
-          schema: {type: string}
+          schema:
+            type: string
+        - name: source_type
+          in: query
+          required: false
+          schema:
+            type: string
       responses:
-        "200": {description: Calculator projects}
+        "200":
+          description: Study notes.
+    post:
+      operationId: saveStudyNote
+      summary: Save a markdown study note, external note, or calculator manual.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - title
+                - content_markdown
+              properties:
+                title:
+                  type: string
+                content_markdown:
+                  type: string
+                subject:
+                  type: string
+                source_type:
+                  type: string
+                series_id:
+                  type: string
+                change_summary:
+                  type: string
+                replace_latest:
+                  type: boolean
+      responses:
+        "200":
+          description: Saved study note.
+
+  /study/notes/{source_id}:
+    get:
+      operationId: getStudyNote
+      summary: Get markdown content for a study note.
+      parameters:
+        - name: source_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Study note content.
+    put:
+      operationId: updateStudyNote
+      summary: Replace markdown content for an existing study note.
+      parameters:
+        - name: source_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - content_markdown
+              properties:
+                title:
+                  type: string
+                content_markdown:
+                  type: string
+                change_summary:
+                  type: string
+      responses:
+        "200":
+          description: Updated study note.
+
+  /exam-cram:
+    post:
+      operationId: saveExamCram
+      summary: Save a two to three page pre-exam cram sheet as markdown.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - title
+                - content_markdown
+              properties:
+                title:
+                  type: string
+                content_markdown:
+                  type: string
+                subject:
+                  type: string
+                series_id:
+                  type: string
+                change_summary:
+                  type: string
+                replace_latest:
+                  type: boolean
+      responses:
+        "200":
+          description: Saved exam cram sheet.
+
+  /transcripts/revisions:
+    post:
+      operationId: saveTranscriptRevision
+      summary: Save a corrected transcript.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - title
+                - corrected_text
+              properties:
+                title:
+                  type: string
+                corrected_text:
+                  type: string
+                subject:
+                  type: string
+                original_transcript_source_id:
+                  type: string
+                terminology_map:
+                  type: object
+                change_log:
+                  type: array
+                  items:
+                    type: object
+      responses:
+        "200":
+          description: Saved transcript revision.
+
+  /problem-packs:
+    post:
+      operationId: saveProblemPack
+      summary: Save a SolvePad problem pack and return an import URL.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - title
+                - pack
+              properties:
+                title:
+                  type: string
+                pack:
+                  type: object
+      responses:
+        "200":
+          description: Saved problem pack.
+
+  /calculator/projects:
+    get:
+      operationId: listCalculatorProjects
+      summary: List saved CASIO calculator projects.
+      parameters:
+        - name: subject
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Calculator projects.
 
   /calculator/projects/{project_id}:
     get:
       operationId: getCalculatorProject
-      summary: Get saved CASIO calculator project with blueprint, files, and manual
+      summary: Get a saved calculator project.
       parameters:
         - name: project_id
           in: path
           required: true
-          schema: {type: string}
+          schema:
+            type: string
       responses:
-        "200": {description: Calculator project}
+        "200":
+          description: Calculator project.
     delete:
       operationId: deleteCalculatorProject
-      summary: Delete a saved CASIO calculator project
+      summary: Delete a saved calculator project.
       parameters:
         - name: project_id
           in: path
           required: true
-          schema: {type: string}
+          schema:
+            type: string
       responses:
-        "200": {description: Deleted calculator project}
-
-
-  /calculator/projects/{project_id}/download.zip:
-    get:
-      operationId: downloadCalculatorProjectZip
-      summary: Download saved calculator TXT files plus manual and analysis as a ZIP
-      parameters:
-        - name: project_id
-          in: path
-          required: true
-          schema: {type: string}
-      responses:
-        "200": {description: Calculator ZIP}
+        "200":
+          description: Deleted calculator project.
 
   /calculator/validate:
     post:
       operationId: validateCalculatorBlueprint
-      summary: Validate CASIO PRGM blueprint
+      summary: Validate a CASIO PRGM blueprint.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [title, blueprint]
+              required:
+                - title
+                - blueprint
               properties:
-                title: {type: string}
-                blueprint: {type: object}
-                metadata: {type: object}
-                analysis_markdown: {type: string}
-                manual_markdown: {type: string}
-                replace_calculator_project_id: {type: string}
+                title:
+                  type: string
+                blueprint:
+                  type: object
+                metadata:
+                  type: object
+                analysis_markdown:
+                  type: string
+                manual_markdown:
+                  type: string
+                replace_calculator_project_id:
+                  type: string
       responses:
-        "200": {description: Validation result}
+        "200":
+          description: Validation result.
+
   /calculator/generate:
     post:
       operationId: generateCalculatorProgram
-      summary: Generate CASIO PRGM TXT files from blueprint
+      summary: Generate CASIO PRGM TXT files from a blueprint and save manual.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [title, blueprint]
+              required:
+                - title
+                - blueprint
               properties:
-                title: {type: string}
-                blueprint: {type: object}
-                metadata: {type: object}
-                analysis_markdown: {type: string}
-                manual_markdown: {type: string}
-                replace_calculator_project_id: {type: string}
+                title:
+                  type: string
+                blueprint:
+                  type: object
+                metadata:
+                  type: object
+                analysis_markdown:
+                  type: string
+                manual_markdown:
+                  type: string
+                replace_calculator_project_id:
+                  type: string
       responses:
-        "200": {description: Generated}
+        "200":
+          description: Generated calculator program.
