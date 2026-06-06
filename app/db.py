@@ -40,6 +40,9 @@ def init_db() -> None:
                 mime_type TEXT,
                 size_bytes INTEGER NOT NULL,
                 extract_status TEXT NOT NULL,
+                exam_scope_status TEXT NOT NULL DEFAULT 'unknown',
+                exam_usage_mode TEXT NOT NULL DEFAULT 'style_generation',
+                exam_range_note TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL
             );
 
@@ -210,6 +213,9 @@ def init_db() -> None:
             """
         )
         _ensure_column(db, "sources", "subject", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(db, "sources", "exam_scope_status", "TEXT NOT NULL DEFAULT 'unknown'")
+        _ensure_column(db, "sources", "exam_usage_mode", "TEXT NOT NULL DEFAULT 'style_generation'")
+        _ensure_column(db, "sources", "exam_range_note", "TEXT NOT NULL DEFAULT ''")
         _ensure_column(db, "calculator_blueprints", "manual_markdown", "TEXT NOT NULL DEFAULT ''")
         _ensure_column(db, "calculator_blueprints", "manual_source_id", "TEXT NOT NULL DEFAULT ''")
         _ensure_column(db, "calculator_blueprints", "analysis_markdown", "TEXT NOT NULL DEFAULT ''")
@@ -281,6 +287,9 @@ def save_source(
     text: str,
     status: str,
     subject: str = "",
+    exam_scope_status: str = "unknown",
+    exam_usage_mode: str = "style_generation",
+    exam_range_note: str = "",
 ) -> Dict[str, Any]:
     source_id = make_id("src")
     ts = now()
@@ -288,10 +297,10 @@ def save_source(
     with conn() as db:
         db.execute(
             """
-            INSERT INTO sources(id,title,subject,source_type,original_name,stored_path,mime_type,size_bytes,extract_status,created_at)
-            VALUES(?,?,?,?,?,?,?,?,?,?)
+            INSERT INTO sources(id,title,subject,source_type,original_name,stored_path,mime_type,size_bytes,extract_status,exam_scope_status,exam_usage_mode,exam_range_note,created_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
-            (source_id, title, subject, source_type, original_name, stored_path, mime_type, size_bytes, status, ts),
+            (source_id, title, subject, source_type, original_name, stored_path, mime_type, size_bytes, status, exam_scope_status, exam_usage_mode, exam_range_note, ts),
         )
         for i, chunk in enumerate(chunks, 1):
             db.execute(
@@ -301,7 +310,7 @@ def save_source(
                 """,
                 (f"{source_id}-c{i:04d}", source_id, i, "", "", chunk, ts),
             )
-    return {"source_id": source_id, "title": title, "subject": subject, "source_type": source_type, "chunk_count": len(chunks), "extract_status": status}
+    return {"source_id": source_id, "title": title, "subject": subject, "source_type": source_type, "chunk_count": len(chunks), "extract_status": status, "exam_scope_status": exam_scope_status, "exam_usage_mode": exam_usage_mode, "exam_range_note": exam_range_note}
 
 
 def save_text_source(title: str, source_type: str, text: str, original_name: str = "generated.md", subject: str = "") -> Dict[str, Any]:
@@ -512,6 +521,84 @@ def get_workflow_options(subject: str = "") -> Dict[str, Any]:
         "availableModes": _modes(),
     }
 
+
+
+def _limit_items(items: List[Dict[str, Any]], limit: int) -> List[Dict[str, Any]]:
+    return list(items or [])[: max(0, int(limit or 0))]
+
+
+def get_dashboard(subject: str = "", limit: int = 8) -> Dict[str, Any]:
+    """Compact dashboard for Custom GPT menu/status calls.
+
+    This intentionally returns summaries and short lists only, so the GPT can show
+    menus/status without calling several separate Actions or pulling large data.
+    """
+    limit = max(1, min(int(limit or 8), 20))
+    sources = list_sources(subject=subject)
+    subjects = sorted({source.get("subject", "") for source in list_sources() if source.get("subject", "")})
+
+    by_type: Dict[str, Dict[str, Any]] = {}
+    for source in sources:
+        source_type = source.get("source_type", "unknown")
+        item = by_type.setdefault(source_type, {"count": 0, "recent": []})
+        item["count"] += 1
+        if len(item["recent"]) < 3:
+            item["recent"].append({
+                "sourceId": source.get("id", ""),
+                "title": source.get("title", ""),
+                "createdAt": source.get("created_at", ""),
+                "examScopeStatus": source.get("exam_scope_status", ""),
+                "examUsageMode": source.get("exam_usage_mode", ""),
+            })
+
+    mapping = get_mapping_status(subject)
+    study_notes = list_study_notes(subject)
+    calculator_projects = list_calculator_blueprints(subject)
+    active_runs = [run for run in list_workflow_runs() if run.get("status") in {"running", "paused"}]
+    if subject:
+        active_runs = [run for run in active_runs if run.get("subject") == subject]
+
+    recent_runs = list_workflow_runs()[:limit]
+    if subject:
+        recent_runs = [run for run in recent_runs if run.get("subject") == subject]
+
+    return {
+        "subject": subject,
+        "subjects": subjects,
+        "summary": {
+            "sourceCount": len(sources),
+            "sourceTypeCount": len(by_type),
+            "mappedSourceCount": mapping.get("summary", {}).get("mappedSourceCount", 0),
+            "unmappedSourceCount": mapping.get("summary", {}).get("unmappedSourceCount", 0),
+            "unitMapCount": mapping.get("summary", {}).get("unitMapCount", 0),
+            "unitCount": mapping.get("summary", {}).get("unitCount", 0),
+            "studyNoteCount": len(study_notes),
+            "calculatorProjectCount": len(calculator_projects),
+            "activeWorkflowRunCount": len(active_runs),
+        },
+        "bySourceType": by_type,
+        "recentSources": _limit_items(sources, limit),
+        "unmappedSources": _limit_items(mapping.get("unmappedSources", []), limit),
+        "unitMaps": _limit_items(mapping.get("unitMaps", []), limit),
+        "units": _limit_items(mapping.get("units", []), limit),
+        "studyNotes": _limit_items(study_notes, limit),
+        "calculatorProjects": _limit_items(calculator_projects, limit),
+        "activeWorkflowRuns": _limit_items(active_runs, limit),
+        "recentWorkflowRuns": _limit_items(recent_runs, limit),
+        "quickLinks": {
+            "home": "/",
+            "upload": "/upload",
+            "studyNoteStudio": "/static/study/index.html",
+            "solvePad": "/static/solvepad/index.html",
+            "calculatorStudio": "/static/casio/index.html",
+            "fileManager": "/sources/manage",
+        },
+        "recommendedActionPolicy": {
+            "menuAndStatus": "use getDashboard first",
+            "uploadAndDownload": "use site UI links",
+            "longWork": "use workflow run and checkpoint actions",
+        },
+    }
 
 def create_workflow_plan(
     title: str,

@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Study Note Studio</title>
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css?v=21" />
   <script>
     window.MathJax = { tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']], processEscapes: true }, svg: { fontCache: 'global' } };
   </script>
@@ -12,12 +12,12 @@
 </head>
 <body>
   <header class="appbar">
-    <div><b>Study Note Studio</b><span id="saveState">저장 대기</span></div>
+    <div><b>Study Note Studio</b><span id="saveState">문서형 편집 모드</span></div>
     <nav><a href="/">홈</a><a href="/upload">자료 업로드</a><a href="/static/solvepad/index.html">SolvePad</a><a href="/static/casio/index.html">계산기</a></nav>
   </header>
   <main class="layout">
     <aside class="rail">
-      <h2>자료</h2>
+      <h2>정리본</h2>
       <label>액션 키</label><input id="key" type="password" placeholder="처음 한 번 입력" />
       <label>과목</label><input id="subject" placeholder="CRE" />
       <label>종류</label>
@@ -31,6 +31,7 @@
       <button onclick="listNotes()">목록 불러오기</button>
       <button class="secondary" onclick="newNote('generated_note')">새 정리본</button>
       <button class="secondary" onclick="newNote('exam_cram')">새 시험직전</button>
+      <p class="hint">정리본 본문을 워드처럼 직접 수정합니다. Markdown 원문은 평소에 보이지 않습니다.</p>
       <div id="list" class="list"></div>
     </aside>
     <section class="editor">
@@ -38,17 +39,24 @@
         <input id="title" placeholder="제목" />
         <button onclick="saveNote()">저장</button>
         <button onclick="highlightSelection()">형광펜</button>
+        <button class="secondary" onclick="clearHighlight()">형광펜 지우기</button>
         <label class="filebtn">이미지<input id="imageInput" type="file" accept="image/*" onchange="insertImage(event)" /></label>
+        <span class="spacer"></span>
         <button class="secondary" onclick="downloadMd()">Markdown</button>
         <button class="secondary" onclick="downloadDocx()">Word</button>
         <button class="secondary" onclick="printPdf()">PDF 저장</button>
+        <button class="ghost" onclick="toggleSource()" id="sourceToggle">고급: 원문 보기</button>
       </div>
-      <div class="split">
-        <textarea id="markdown" spellcheck="false" placeholder="왼쪽 목록에서 정리본을 열거나 새 정리본을 만드세요. 수식은 $...$ 또는 $$...$$ 형태로 작성합니다."></textarea>
-        <article id="preview" class="preview"></article>
+      <div class="workarea">
+        <article id="doc" class="doc" contenteditable="true" spellcheck="false"></article>
+        <dialog id="sourceDialog">
+          <div class="dialog-head"><b>Markdown 원문</b><button onclick="toggleSource()">닫기</button></div>
+          <textarea id="markdown" spellcheck="false" placeholder="Markdown 원문"></textarea>
+          <p class="hint">수식 자체를 고칠 때만 사용하세요. 닫으면 문서 화면에 다시 반영됩니다.</p>
+        </dialog>
       </div>
     </section>
   </main>
-  <script src="app.js"></script>
+  <script src="app.js?v=21"></script>
 </body>
 </html>

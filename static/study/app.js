@@ -1,37 +1,131 @@
-const $ = (id)=>document.getElementById(id);
-const KEY='lecturenote_action_key', SUBJECT='lecturenote_subject';
-let currentSourceId=''; let currentSourceType='generated_note';
-function key(){return $('key').value.trim()} function subject(){return $('subject').value.trim()}
-function headers(json=true){const h={}; if(key()) h.Authorization='Bearer '+key(); if(json) h['Content-Type']='application/json'; return h}
-function remember(){ if(key()) localStorage.setItem(KEY,key()); if(subject()) localStorage.setItem(SUBJECT,subject()); }
-function restore(){ $('key').value=localStorage.getItem(KEY)||''; $('subject').value=localStorage.getItem(SUBJECT)||''; }
-function status(t){ $('saveState').textContent=t; }
-function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
-async function api(path,opt={}){remember(); const res=await fetch(path,opt); if(!res.ok) throw new Error(await res.text()); return await res.json();}
-function render(md){
-  md = String(md||'');
-  const stash=[];
-  md = md.replace(/```([\s\S]*?)```/g,(_,c)=>{stash.push('<pre><code>'+esc(c)+'</code></pre>'); return `\u0000${stash.length-1}\u0000`;});
-  md = esc(md);
-  md = md.replace(/^### (.*)$/gm,'<h3>$1</h3>').replace(/^## (.*)$/gm,'<h2>$1</h2>').replace(/^# (.*)$/gm,'<h1>$1</h1>');
-  md = md.replace(/!\[([^\]]*)\]\(([^)]+)\)/g,'<img alt="$1" src="$2">');
-  md = md.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>').replace(/`([^`]+)`/g,'<code>$1</code>');
-  md = md.replace(/&lt;mark&gt;([\s\S]*?)&lt;\/mark&gt;/g,'<mark>$1</mark>');
-  md = md.replace(/^(?:- |\* )(.*)$/gm,'<li>$1</li>').replace(/(<li>[\s\S]*?<\/li>\n?)+/g,m=>'<ul>'+m+'</ul>');
-  md = md.split(/\n{2,}/).map(block=>/^\s*<(h\d|ul|pre|img|blockquote|table)/.test(block)?block:'<p>'+block.replace(/\n/g,'<br>')+'</p>').join('\n');
-  md = md.replace(/\u0000(\d+)\u0000/g,(_,i)=>stash[Number(i)]||'');
-  $('preview').innerHTML=md;
-  if(window.MathJax?.typesetPromise) MathJax.typesetPromise([$ ('preview')]).catch(()=>{});
+const $ = (id) => document.getElementById(id);
+const KEY = 'lecturenote_action_key';
+const SUBJECT = 'lecturenote_subject';
+let currentSourceId = '';
+let currentSourceType = 'generated_note';
+let isRendering = false;
+
+function actionKey() { return $('key').value.trim(); }
+function subject() { return $('subject').value.trim(); }
+function headers(json = true) {
+  const h = {};
+  if (actionKey()) h.Authorization = 'Bearer ' + actionKey();
+  if (json) h['Content-Type'] = 'application/json';
+  return h;
 }
-function onEdit(){ render($('markdown').value); status('수정됨'); }
-async function listNotes(){ try{ remember(); const params=new URLSearchParams(); if(subject()) params.set('subject',subject()); if($('sourceType').value) params.set('source_type',$('sourceType').value); const data=await api('/study/notes?'+params,{headers:headers(false)}); const list=data.notes||[]; $('list').innerHTML=list.length?'':'<div class="item"><span>자료 없음</span></div>'; for(const n of list){ const div=document.createElement('div'); div.className='item'; div.onclick=()=>openNote(n.source_id); div.innerHTML=`<b>${esc(n.title)}</b><span>${esc(n.subject||'미지정')} · ${esc(n.source_type)} · ${esc(n.source_id)}</span>`; $('list').appendChild(div);} status('목록 불러옴'); }catch(e){status('오류'); alert(e.message);} }
-async function openNote(id){ try{ const data=await api('/study/notes/'+encodeURIComponent(id),{headers:headers(false)}); currentSourceId=id; currentSourceType=data.source?.source_type||'generated_note'; $('title').value=data.source?.title||''; $('markdown').value=data.markdown||''; render($('markdown').value); status('열림: '+id); }catch(e){alert(e.message)} }
-function newNote(type){ currentSourceId=''; currentSourceType=type; $('title').value=type==='exam_cram'?'시험 직전 정리':'새 정리본'; $('markdown').value= type==='exam_cram' ? '# 시험 직전 정리\n\n## 1. 직전 암기\n\n## 2. 오답 주의사항\n\n## 3. 주요 개념\n\n## 4. 마지막 확인\n' : '# 새 정리본\n\n내용을 입력하세요. 수식은 $...$ 또는 $$...$$로 작성합니다.\n'; render($('markdown').value); status('새 문서'); }
-async function saveNote(){ try{ const payload={title:$('title').value.trim()||'Untitled',content_markdown:$('markdown').value,change_summary:'edited in Study Note Studio'}; let data; if(currentSourceId){ data=await api('/study/notes/'+encodeURIComponent(currentSourceId),{method:'PUT',headers:headers(),body:JSON.stringify(payload)}); } else { data=await api('/study/notes',{method:'POST',headers:headers(),body:JSON.stringify({...payload,subject:subject(),source_type:currentSourceType,replace_latest:false})}); currentSourceId=data.source_id; } status('저장됨'); await listNotes(); return data; }catch(e){status('오류'); alert(e.message);} }
-function wrapSelection(before,after){ const ta=$('markdown'); const s=ta.selectionStart,e=ta.selectionEnd; const text=ta.value.slice(s,e)||'강조할 내용'; ta.setRangeText(before+text+after,s,e,'end'); onEdit(); }
-function highlightSelection(){ wrapSelection('<mark>','</mark>'); }
-function insertImage(ev){ const file=ev.target.files?.[0]; if(!file) return; const reader=new FileReader(); reader.onload=()=>{ const name=file.name.replace(/[\]\)]/g,''); wrapSelection(`\n![${name}](${reader.result})\n`,''); }; reader.readAsDataURL(file); ev.target.value=''; }
-function downloadMd(){ if(!currentSourceId) return alert('먼저 저장하세요.'); location.href='/study/notes/'+encodeURIComponent(currentSourceId)+'/download.md'; }
-function downloadDocx(){ if(!currentSourceId) return alert('먼저 저장하세요.'); location.href='/study/notes/'+encodeURIComponent(currentSourceId)+'/download.docx'; }
-function printPdf(){ if(!currentSourceId) return alert('먼저 저장하세요.'); window.open('/study/notes/'+encodeURIComponent(currentSourceId)+'/print','_blank'); }
-$('markdown').addEventListener('input',onEdit); restore(); render(''); listNotes();
+function remember() { if (actionKey()) localStorage.setItem(KEY, actionKey()); if (subject()) localStorage.setItem(SUBJECT, subject()); }
+function restore() { $('key').value = localStorage.getItem(KEY) || ''; $('subject').value = localStorage.getItem(SUBJECT) || ''; }
+function status(text) { $('saveState').textContent = text; }
+function esc(value) { return String(value ?? '').replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m])); }
+function attr(value) { return esc(value).replace(/`/g, '&#96;'); }
+async function api(path, opt = {}) { remember(); const res = await fetch(path, opt); if (!res.ok) throw new Error(await res.text()); return await res.json(); }
+
+function protectMath(text) {
+  const stash = [];
+  let out = String(text || '');
+  const put = (tex, cls) => { stash.push(`<span class="${cls}" data-tex="${attr(tex)}" contenteditable="false">${esc(tex)}</span>`); return `\u0000M${stash.length - 1}\u0000`; };
+  out = out.replace(/\$\$([\s\S]+?)\$\$/g, (_, body) => put(`$$${body}$$`, 'math-block'));
+  out = out.replace(/\\\[([\s\S]+?)\\\]/g, (_, body) => put(`\\[${body}\\]`, 'math-block'));
+  out = out.replace(/\$([^$\n]+?)\$/g, (_, body) => put(`$${body}$`, 'math-inline'));
+  out = out.replace(/\\\(([^\n]+?)\\\)/g, (_, body) => put(`\\(${body}\\)`, 'math-inline'));
+  return { out, stash };
+}
+function restoreStash(html, stash) { return html.replace(/\\u0000M(\d+)\\u0000/g, (_, i) => stash[Number(i)] || ''); }
+function inlineMarkdownToHtml(text) {
+  const { out, stash } = protectMath(text);
+  let html = esc(out);
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+  html = html.replace(/&lt;mark&gt;([\s\S]*?)&lt;\/mark&gt;/g, '<mark>$1</mark>');
+  return restoreStash(html, stash);
+}
+function markdownToHtml(md) {
+  md = String(md || '').replace(/\r\n/g, '\n');
+  const blocks = [];
+  const lines = md.split('\n');
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (!line.trim()) { i += 1; continue; }
+    if (line.startsWith('```')) {
+      const code = [];
+      i += 1;
+      while (i < lines.length && !lines[i].startsWith('```')) { code.push(lines[i]); i += 1; }
+      i += 1;
+      blocks.push(`<pre><code>${esc(code.join('\n'))}</code></pre>`);
+      continue;
+    }
+    const image = line.match(/^!\[([^\]]*)\]\((.+)\)$/);
+    if (image) {
+      blocks.push(`<figure class="image-card" data-md-src="${attr(image[2])}"><img alt="${attr(image[1] || '이미지')}" src="${attr(image[2])}" contenteditable="false"><figcaption contenteditable="true">${esc(image[1] || '이미지')}</figcaption></figure>`);
+      i += 1; continue;
+    }
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) { const level = heading[1].length; blocks.push(`<h${level}>${inlineMarkdownToHtml(heading[2])}</h${level}>`); i += 1; continue; }
+    if (/^[-*]\s+/.test(line)) {
+      const items = [];
+      while (i < lines.length && /^[-*]\s+/.test(lines[i])) { items.push(`<li>${inlineMarkdownToHtml(lines[i].replace(/^[-*]\s+/, ''))}</li>`); i += 1; }
+      blocks.push(`<ul>${items.join('')}</ul>`); continue;
+    }
+    const para = [line]; i += 1;
+    while (i < lines.length && lines[i].trim() && !/^(#{1,3})\s+/.test(lines[i]) && !/^[-*]\s+/.test(lines[i]) && !lines[i].startsWith('```') && !/^!\[/.test(lines[i])) { para.push(lines[i]); i += 1; }
+    blocks.push(`<p>${inlineMarkdownToHtml(para.join('\n')).replace(/\n/g, '<br>')}</p>`);
+  }
+  return blocks.join('\n') || '<p class="placeholder">왼쪽 목록에서 정리본을 열거나 새 정리본을 만드세요.</p>';
+}
+async function typesetDocument() { if (window.MathJax?.typesetPromise) { try { await MathJax.typesetPromise([$('doc')]); } catch (_) {} } }
+async function renderMarkdown(md) { isRendering = true; $('markdown').value = String(md || ''); $('doc').innerHTML = markdownToHtml(md); await typesetDocument(); isRendering = false; }
+
+function inlineToMarkdown(node) {
+  if (node.nodeType === Node.TEXT_NODE) return node.nodeValue || '';
+  if (node.nodeType !== Node.ELEMENT_NODE) return '';
+  const el = node, tag = el.tagName.toLowerCase();
+  if (el.dataset?.tex) return el.dataset.tex;
+  if (tag === 'mjx-container') return el.closest('[data-tex]')?.dataset?.tex || '';
+  if (tag === 'br') return '\n';
+  const body = Array.from(el.childNodes).map(inlineToMarkdown).join('');
+  if (tag === 'strong' || tag === 'b') return `**${body}**`;
+  if (tag === 'code') return '`' + body + '`';
+  if (tag === 'mark') return `<mark>${body}</mark>`;
+  return body;
+}
+function blockToMarkdown(el) {
+  if (el.nodeType === Node.TEXT_NODE) return (el.nodeValue || '').trim();
+  if (el.nodeType !== Node.ELEMENT_NODE) return '';
+  const tag = el.tagName.toLowerCase();
+  if (el.dataset?.tex) return el.dataset.tex;
+  if (tag === 'h1') return '# ' + inlineToMarkdown(el);
+  if (tag === 'h2') return '## ' + inlineToMarkdown(el);
+  if (tag === 'h3') return '### ' + inlineToMarkdown(el);
+  if (tag === 'ul') return Array.from(el.children).filter(li => li.tagName.toLowerCase() === 'li').map(li => '- ' + inlineToMarkdown(li)).join('\n');
+  if (tag === 'ol') return Array.from(el.children).filter(li => li.tagName.toLowerCase() === 'li').map((li, idx) => `${idx + 1}. ${inlineToMarkdown(li)}`).join('\n');
+  if (tag === 'pre') return '```\n' + (el.textContent || '') + '\n```';
+  if (tag === 'figure') { const img = el.querySelector('img'); const cap = el.querySelector('figcaption')?.textContent?.trim() || img?.alt || '이미지'; const src = el.dataset.mdSrc || img?.src || ''; return src ? `![${cap}](${src})` : ''; }
+  if (tag === 'img') return `![${el.alt || '이미지'}](${el.src})`;
+  if (tag === 'p' || tag === 'div') return inlineToMarkdown(el).trim();
+  return inlineToMarkdown(el).trim();
+}
+function documentToMarkdown() { const blocks = Array.from($('doc').childNodes).map(blockToMarkdown).filter(v => v && v.trim()); return blocks.join('\n\n').replace(/\n{3,}/g, '\n\n').trim() + '\n'; }
+function syncMarkdownFromDocument() { if (isRendering) return; $('markdown').value = documentToMarkdown(); status('수정됨'); }
+
+async function listNotes() {
+  try { remember(); const params = new URLSearchParams(); if (subject()) params.set('subject', subject()); if ($('sourceType').value) params.set('source_type', $('sourceType').value); const data = await api('/study/notes?' + params, { headers: headers(false) }); const list = data.notes || []; $('list').innerHTML = list.length ? '' : '<div class="item"><span>저장된 정리본이 없습니다.</span></div>'; for (const n of list) { const div = document.createElement('button'); div.type = 'button'; div.className = 'item'; div.onclick = () => openNote(n.source_id); div.innerHTML = `<b>${esc(n.title)}</b><span>${esc(n.subject || '미지정')} · ${esc(n.source_type)} · ${esc(n.source_id)}</span>`; $('list').appendChild(div); } status('목록 불러옴'); } catch (e) { status('오류'); alert(e.message); }
+}
+async function openNote(id) { try { const data = await api('/study/notes/' + encodeURIComponent(id), { headers: headers(false) }); currentSourceId = id; currentSourceType = data.source?.source_type || 'generated_note'; $('title').value = data.source?.title || ''; await renderMarkdown(data.markdown || ''); status('열림: ' + id); } catch (e) { alert(e.message); } }
+async function newNote(type) { currentSourceId = ''; currentSourceType = type; $('title').value = type === 'exam_cram' ? '시험 직전 정리' : '새 정리본'; const initial = type === 'exam_cram' ? '# 시험 직전 정리\n\n## 1. 직전 암기\n\n## 2. 오답 주의사항\n\n## 3. 주요 개념\n\n## 4. 마지막 확인\n' : '# 새 정리본\n\n내용을 입력하세요. 수식은 $...$ 또는 $$...$$ 형태로 유지됩니다.\n'; await renderMarkdown(initial); status('새 문서'); }
+async function saveNote() { try { syncMarkdownFromDocument(); const payload = { title: $('title').value.trim() || 'Untitled', content_markdown: $('markdown').value, change_summary: 'edited in Study Note Studio' }; let data; if (currentSourceId) data = await api('/study/notes/' + encodeURIComponent(currentSourceId), { method: 'PUT', headers: headers(), body: JSON.stringify(payload) }); else { data = await api('/study/notes', { method: 'POST', headers: headers(), body: JSON.stringify({ ...payload, subject: subject(), source_type: currentSourceType, replace_latest: false }) }); currentSourceId = data.source_id; } status('저장됨'); await listNotes(); return data; } catch (e) { status('오류'); alert(e.message); } }
+
+function wrapRangeWithMark(range) { const mark = document.createElement('mark'); try { range.surroundContents(mark); } catch (_) { const contents = range.extractContents(); mark.appendChild(contents); range.insertNode(mark); } }
+function highlightSelection() { const sel = window.getSelection(); if (!sel || !sel.rangeCount || sel.isCollapsed) return alert('형광펜 칠할 텍스트를 먼저 드래그해서 선택하세요.'); const range = sel.getRangeAt(0); if (!$('doc').contains(range.commonAncestorContainer)) return alert('정리본 본문 안의 텍스트를 선택하세요.'); wrapRangeWithMark(range); sel.removeAllRanges(); syncMarkdownFromDocument(); }
+function clearHighlight() { document.querySelectorAll('#doc mark').forEach(mark => mark.replaceWith(...mark.childNodes)); syncMarkdownFromDocument(); }
+function insertNodeAtSelection(node) { const sel = window.getSelection(); if (sel && sel.rangeCount && $('doc').contains(sel.getRangeAt(0).commonAncestorContainer)) { const range = sel.getRangeAt(0); range.deleteContents(); range.insertNode(node); range.setStartAfter(node); range.setEndAfter(node); sel.removeAllRanges(); sel.addRange(range); } else $('doc').appendChild(node); }
+function insertImage(ev) { const file = ev.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = () => { const figure = document.createElement('figure'); figure.className = 'image-card'; figure.dataset.mdSrc = reader.result; figure.innerHTML = `<img alt="${attr(file.name)}" src="${attr(reader.result)}" contenteditable="false"><figcaption contenteditable="true">${esc(file.name)}</figcaption>`; insertNodeAtSelection(figure); syncMarkdownFromDocument(); }; reader.readAsDataURL(file); ev.target.value = ''; }
+async function toggleSource() { const dialog = $('sourceDialog'); if (dialog.open) { await renderMarkdown($('markdown').value); dialog.close(); } else { syncMarkdownFromDocument(); dialog.showModal(); } }
+function downloadMd() { if (!currentSourceId) return alert('먼저 저장하세요.'); location.href = '/study/notes/' + encodeURIComponent(currentSourceId) + '/download.md'; }
+function downloadDocx() { if (!currentSourceId) return alert('먼저 저장하세요.'); window.open('/study/notes/' + encodeURIComponent(currentSourceId) + '/download.docx', '_blank'); }
+function printPdf() { if (!currentSourceId) return alert('먼저 저장하세요.'); window.open('/study/notes/' + encodeURIComponent(currentSourceId) + '/print', '_blank'); }
+
+$('doc').addEventListener('input', syncMarkdownFromDocument);
+$('doc').addEventListener('paste', (ev) => { ev.preventDefault(); const text = ev.clipboardData?.getData('text/plain') || ''; document.execCommand('insertText', false, text); });
+$('markdown').addEventListener('input', () => status('원문 수정됨'));
+restore(); renderMarkdown(''); listNotes();

@@ -69,3 +69,18 @@
 Action 실패 시:
 - 실패 원인을 말한다.
 - JSON 직접 붙여넣기용 출력으로 대체한다.
+
+
+# v21 시험지/기출 업로드 메타데이터 반영
+
+기출 또는 시험지를 사용할 때는 업로드된 source의 exam_scope_status와 exam_usage_mode를 확인한다.
+
+- in_scope + exact_transcription: 현재 시험범위에 해당하는 문제를 SolvePad 문제팩으로 원문 전사한다.
+- in_scope + style_generation: 해당 시험지의 출제 스타일만 분석해 새 문제 세트를 만든다.
+- in_scope + both: 원문 전사 문제팩과 신규 생성 문제팩을 분리한다.
+- out_of_scope: 현재 시험범위 문제로 직접 사용하지 않는다. 필요하면 출제 스타일 참고로만 사용한다.
+- mixed: exam_range_note와 단원 매핑을 확인해 범위 안 문항만 사용한다.
+- exclude: 문제 생성과 전사에서 제외한다.
+
+사용자가 “그대로 문제 전사”를 요청하면 exact_transcription 또는 both로 저장된 past_exam을 우선 사용한다.
+사용자가 “비슷한 문제 생성”을 요청하면 style_generation 또는 both로 저장된 past_exam과 exam_trend를 우선 사용한다.

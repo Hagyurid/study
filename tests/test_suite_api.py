@@ -1,3 +1,4 @@
+from pathlib import Path
 from fastapi.testclient import TestClient
 from app.main import app
 
@@ -561,3 +562,82 @@ def test_save_unit_map_accepts_mapping_alias():
     })
     assert response.status_code == 200
     assert response.json()["title"] == "Alias Unit Map"
+
+
+def test_study_note_docx_download_korean_filename_and_wysiwyg_static():
+    created = client.post('/study/notes', json={
+        'title': 'CRE 정리본 한글',
+        'subject': 'CRE',
+        'source_type': 'generated_note',
+        'content_markdown': '# 제목\n\n본문 <mark>강조</mark>\n\n![샘플](data:image/png;base64,iVBORw0KGgo=)',
+        'replace_latest': False
+    })
+    assert created.status_code == 200
+    source_id = created.json()['source_id']
+    docx = client.get(f'/study/notes/{source_id}/download.docx')
+    assert docx.status_code == 200
+    assert docx.headers['content-type'].startswith('application/vnd.openxmlformats')
+    assert 'filename*=' in docx.headers.get('content-disposition', '')
+
+    html = Path('static/study/index.html').read_text(encoding='utf-8')
+    js = Path('static/study/app.js').read_text(encoding='utf-8')
+    assert 'contenteditable="true"' in html
+    assert 'documentToMarkdown' in js
+    assert 'image-card' in js
+
+
+
+def test_v21_past_exam_upload_metadata_and_wysiwyg_source_hidden():
+    files = [("files", ("final_exam.txt", b"problem 1 reactor", "text/plain"))]
+    response = client.post(
+        "/sources/upload-batch",
+        data={
+            "subject": "CRE",
+            "source_type": "past_exam",
+            "title": "CRE Final Past Exam",
+            "exam_scope_status": "in_scope",
+            "exam_usage_mode": "both",
+            "exam_range_note": "1-3 units only",
+        },
+        files=files,
+    )
+    assert response.status_code == 200
+    assert "현재 시험범위 해당" in response.text
+    sources = client.get("/sources?subject=CRE&source_type=past_exam")
+    assert sources.status_code == 200
+    assert any(s.get("exam_scope_status") == "in_scope" and s.get("exam_usage_mode") == "both" for s in sources.json()["sources"])
+    search = client.post("/sources/search", json={"query": "시험범위", "subject": "CRE", "source_types": ["past_exam"], "limit": 5})
+    assert search.status_code == 200
+    assert search.json()["results"]
+
+    html = Path("static/study/index.html").read_text(encoding="utf-8")
+    js = Path("static/study/app.js").read_text(encoding="utf-8")
+    assert "sourceDialog" in html
+    assert "<textarea id=\"markdown\"" in html
+    assert "data-md-src" in js
+    assert "sourcePanel" not in html
+
+
+def test_v22_dashboard_and_openapi_contract():
+    created = client.post('/sources/text', json={
+        'title': 'CRE Dashboard Note',
+        'subject': 'CRE',
+        'source_type': 'generated_note',
+        'text': '# Dashboard Note\ncontent',
+        'original_name': 'dashboard.md'
+    })
+    assert created.status_code == 200
+
+    dashboard = client.get('/dashboard?subject=CRE&limit=5')
+    assert dashboard.status_code == 200
+    data = dashboard.json()
+    assert data['subject'] == 'CRE'
+    assert 'summary' in data
+    assert 'quickLinks' in data
+    assert data['quickLinks']['studyNoteStudio'] == '/static/study/index.html'
+
+    schema_text = Path('docs/actions/openapi.yaml').read_text(encoding='utf-8')
+    assert 'openapi: 3.1.0' in schema_text
+    assert 'schemas: {}' in schema_text
+    assert 'operationId: getDashboard' in schema_text
+    assert schema_text.count('operationId:') <= 30

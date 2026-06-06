@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LectureNote Suite Actions
-  version: 1.9.0
+  version: 2.2.0
 servers:
   - url: https://study-xqe8.onrender.com
 
@@ -16,10 +16,29 @@ security:
   - bearerAuth: []
 
 paths:
+  /dashboard:
+    get:
+      operationId: getDashboard
+      summary: Get compact menu/status dashboard for sources, mapping, notes, calculators, and active workflows.
+      parameters:
+        - name: subject
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Dashboard status.
+
   /mapping/status:
     get:
       operationId: getMappingStatus
-      summary: Show mapped and unmapped sources, units, and missing references.
+      summary: Show detailed mapped and unmapped sources, units, and missing references.
       parameters:
         - name: subject
           in: query
@@ -30,24 +49,24 @@ paths:
         "200":
           description: Mapping status.
 
-  /sources/{source_id}:
-    delete:
-      operationId: deleteSource
-      summary: Delete an uploaded source and extracted chunks.
+  /workflow/options:
+    get:
+      operationId: getWorkflowOptions
+      summary: Get detailed subjects, sources, units, unit maps, and work modes.
       parameters:
-        - name: source_id
-          in: path
-          required: true
+        - name: subject
+          in: query
+          required: false
           schema:
             type: string
       responses:
         "200":
-          description: Deleted source.
+          description: Workflow options.
 
   /sources/search:
     post:
       operationId: searchSources
-      summary: Search saved source chunks.
+      summary: Search saved source chunks by query, subject, and source type.
       requestBody:
         required: true
         content:
@@ -90,164 +109,24 @@ paths:
         "200":
           description: Unmapped sources.
 
-  /workflow/options:
-    get:
-      operationId: getWorkflowOptions
-      summary: Get subjects, sources, units, unit maps, and work modes.
+  /sources/{source_id}:
+    delete:
+      operationId: deleteSource
+      summary: Delete an uploaded source and extracted chunks.
       parameters:
-        - name: subject
-          in: query
-          required: false
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Workflow options.
-
-  /workflow/plans:
-    post:
-      operationId: createWorkflowPlan
-      summary: Save a selected workflow plan.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - title
-                - selected_mode
-              properties:
-                title:
-                  type: string
-                subject:
-                  type: string
-                selected_units:
-                  type: array
-                  items:
-                    type: string
-                selected_mode:
-                  type: string
-                unit_map_id:
-                  type: string
-                source_ids:
-                  type: array
-                  items:
-                    type: string
-                reference_priority:
-                  type: array
-                  items:
-                    type: string
-                notes:
-                  type: string
-      responses:
-        "200":
-          description: Saved workflow plan.
-    get:
-      operationId: listWorkflowPlans
-      summary: List saved workflow plans.
-      responses:
-        "200":
-          description: Workflow plans.
-
-  /workflow/runs:
-    post:
-      operationId: createWorkflowRun
-      summary: Create a sequential long-running workflow run.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - title
-                - mode
-              properties:
-                title:
-                  type: string
-                mode:
-                  type: string
-                subject:
-                  type: string
-                selected_units:
-                  type: array
-                  items:
-                    type: string
-                workflow_plan_id:
-                  type: string
-                total_steps:
-                  type: integer
-                metadata:
-                  type: object
-      responses:
-        "200":
-          description: Created workflow run.
-    get:
-      operationId: listWorkflowRuns
-      summary: List workflow runs.
-      parameters:
-        - name: status
-          in: query
-          required: false
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Workflow runs.
-
-  /workflow/runs/{run_id}/next:
-    get:
-      operationId: getNextWorkflowStep
-      summary: Get the next step for a workflow run.
-      parameters:
-        - name: run_id
+        - name: source_id
           in: path
           required: true
           schema:
             type: string
       responses:
         "200":
-          description: Next workflow step.
-
-  /workflow/checkpoints:
-    post:
-      operationId: saveWorkflowCheckpoint
-      summary: Save a checkpoint after a workflow step.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - run_id
-                - step_index
-              properties:
-                run_id:
-                  type: string
-                step_index:
-                  type: integer
-                step_label:
-                  type: string
-                status:
-                  type: string
-                saved_refs:
-                  type: object
-                next_action:
-                  type: string
-                notes:
-                  type: string
-                advance_to_next:
-                  type: boolean
-      responses:
-        "200":
-          description: Saved checkpoint.
+          description: Deleted source.
 
   /unit-maps:
     post:
       operationId: saveUnitMap
-      summary: Save a GPT-generated unit map. Use field map for the unit map object.
+      summary: Save GPT-generated unit map.
       requestBody:
         required: true
         content:
@@ -256,7 +135,6 @@ paths:
               type: object
               required:
                 - title
-                - map
               properties:
                 title:
                   type: string
@@ -264,14 +142,19 @@ paths:
                   type: array
                   items:
                     type: string
+                sourceIds:
+                  type: array
+                  items:
+                    type: string
                 map:
-                  type: object
-                  description: Unit map JSON object. The server also accepts map_json, mapJson, or mapping for compatibility.
-                map_json:
                   type: object
                 mapping:
                   type: object
+                map_json:
+                  type: object
                 created_by:
+                  type: string
+                createdBy:
                   type: string
       responses:
         "200":
@@ -317,7 +200,7 @@ paths:
           description: Study notes.
     post:
       operationId: saveStudyNote
-      summary: Save a markdown study note.
+      summary: Save a markdown study note as generated artifact.
       requestBody:
         required: true
         content:
@@ -417,38 +300,6 @@ paths:
         "200":
           description: Saved exam cram sheet.
 
-  /transcripts/revisions:
-    post:
-      operationId: saveTranscriptRevision
-      summary: Save a corrected transcript.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - title
-                - corrected_text
-              properties:
-                title:
-                  type: string
-                corrected_text:
-                  type: string
-                subject:
-                  type: string
-                original_transcript_source_id:
-                  type: string
-                terminology_map:
-                  type: object
-                change_log:
-                  type: array
-                  items:
-                    type: object
-      responses:
-        "200":
-          description: Saved transcript revision.
-
   /problem-packs:
     post:
       operationId: saveProblemPack
@@ -488,7 +339,7 @@ paths:
   /calculator/projects/{project_id}:
     get:
       operationId: getCalculatorProject
-      summary: Get a saved calculator project.
+      summary: Get saved calculator project with blueprint, TXT files, analysis, and manual.
       parameters:
         - name: project_id
           in: path
@@ -514,7 +365,7 @@ paths:
   /calculator/validate:
     post:
       operationId: validateCalculatorBlueprint
-      summary: Validate a CASIO PRGM blueprint.
+      summary: Validate CASIO PRGM blueprint.
       requestBody:
         required: true
         content:
@@ -544,7 +395,7 @@ paths:
   /calculator/generate:
     post:
       operationId: generateCalculatorProgram
-      summary: Generate CASIO PRGM TXT files from a blueprint.
+      summary: Generate CASIO PRGM TXT files from a blueprint and save analysis/manual.
       requestBody:
         required: true
         content:
@@ -570,3 +421,129 @@ paths:
       responses:
         "200":
           description: Generated calculator program.
+
+  /transcripts/revisions:
+    post:
+      operationId: saveTranscriptRevision
+      summary: Save a corrected transcript.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - title
+                - corrected_text
+              properties:
+                title:
+                  type: string
+                corrected_text:
+                  type: string
+                subject:
+                  type: string
+                original_transcript_source_id:
+                  type: string
+                terminology_map:
+                  type: object
+                change_log:
+                  type: array
+                  items:
+                    type: object
+      responses:
+        "200":
+          description: Saved transcript revision.
+
+  /workflow/runs:
+    post:
+      operationId: createWorkflowRun
+      summary: Create a sequential long-running workflow run.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - title
+                - mode
+              properties:
+                title:
+                  type: string
+                mode:
+                  type: string
+                subject:
+                  type: string
+                selected_units:
+                  type: array
+                  items:
+                    type: string
+                workflow_plan_id:
+                  type: string
+                total_steps:
+                  type: integer
+                metadata:
+                  type: object
+      responses:
+        "200":
+          description: Created workflow run.
+    get:
+      operationId: listWorkflowRuns
+      summary: List workflow runs.
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Workflow runs.
+
+  /workflow/runs/{run_id}/next:
+    get:
+      operationId: getNextWorkflowStep
+      summary: Get the next step for a workflow run.
+      parameters:
+        - name: run_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Next workflow step.
+
+  /workflow/checkpoints:
+    post:
+      operationId: saveWorkflowCheckpoint
+      summary: Save a checkpoint after a workflow step.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - run_id
+                - step_index
+              properties:
+                run_id:
+                  type: string
+                step_index:
+                  type: integer
+                step_label:
+                  type: string
+                status:
+                  type: string
+                saved_refs:
+                  type: object
+                next_action:
+                  type: string
+                notes:
+                  type: string
+                advance_to_next:
+                  type: boolean
+      responses:
+        "200":
+          description: Saved checkpoint.

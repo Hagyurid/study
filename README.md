@@ -436,3 +436,42 @@ Study Note Studio가 Markdown 코드 편집 중심에서 실제 문서형 편집
 - 긴 이미지 주소/data URL은 기본 화면에서 숨김
 - Markdown 원문은 `원문 보기`에서만 확인
 - 한글 제목 Word 다운로드 오류 방지
+
+
+## v21 Study Note WYSIWYG + Past Exam Metadata
+
+- Study Note Studio는 실제 문서형 편집 화면을 기본으로 사용합니다.
+- Markdown 원문은 고급 dialog로만 표시됩니다.
+- 시험지/기출 업로드 시 현재 시험범위 해당 여부와 사용 방식을 저장합니다.
+- 문제팩 제작 시 `exam_scope_status`, `exam_usage_mode`, `exam_range_note`를 기준으로 원문 전사/신규 생성/제외를 구분합니다.
+
+## v22 정리 및 최적화
+
+v22는 v21 기능을 유지하면서 Custom GPT 사용성과 코드/문서 정합성을 정리한 버전입니다.
+
+### 핵심 변경
+
+- `/dashboard` 추가: 메뉴/상태/자료 목록 확인을 한 번에 조회
+- Custom GPT Actions 스키마 25개로 정리
+- `getDashboard` 우선 정책 반영
+- Study Note, SolvePad, CASIO, 시험지 메타 기능 유지
+- legacy Action 사용 금지 규칙을 Instructions에 통합
+- 오래된 설정 문서와 일부 중복 안내를 정리
+
+### 주요 링크
+
+```text
+/
+/upload
+/static/study/index.html
+/static/solvepad/index.html
+/static/casio/index.html
+/sources/manage
+/dashboard
+```
+
+### Custom GPT 설정
+
+- Instructions: `docs/custom_gpt/01_suite_instructions.txt`
+- Actions Schema: `docs/actions/openapi.yaml`
+- Knowledge: `docs/custom_gpt/00_custom_gpt_setup_v6.txt` 참고

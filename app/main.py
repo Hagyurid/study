@@ -2,6 +2,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import List, Optional
 from html import escape
+from urllib.parse import quote
 import shutil
 import tempfile
 import zipfile
@@ -17,6 +18,7 @@ from app.config import ACTION_API_KEY, PUBLIC_BASE_URL, UPLOAD_DIR
 from app.db import (
     create_project, create_workflow_plan, create_workflow_run, delete_source, delete_calculator_blueprint,
     export_project_note_as_source, final_bundle, get_latest_note_version,
+    get_dashboard,
     get_mapping_status, get_next_section, get_source_markdown, get_problem_pack_by_token, get_source,
     get_calculator_blueprint, get_unit_map, get_workflow_options, init_db, list_external_notes,
     list_note_versions, list_sources, list_study_notes, list_unit_maps, list_unmapped_sources,
@@ -38,7 +40,7 @@ from app.modules.prgm_engine import generate_txt_files, validate_blueprint
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "static"
 
-app = FastAPI(title="LectureNote Suite", version="1.9.0")
+app = FastAPI(title="LectureNote Suite", version="2.2.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"], allow_credentials=False)
 app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
 init_db()
@@ -66,6 +68,30 @@ def require_auth(authorization: Optional[str] = Header(default=None), x_action_k
 
 def _options(selected: str = "lecture_slides") -> str:
     return "\n".join(f'<option value="{v}" {"selected" if v == selected else ""}>{label}</option>' for v, label in SOURCE_TYPES)
+
+
+EXAM_SCOPE_LABELS = {
+    "unknown": "시험범위 확인 안 됨",
+    "in_scope": "현재 시험범위 해당",
+    "out_of_scope": "현재 시험범위 아님",
+    "mixed": "일부만 시험범위 해당",
+}
+EXAM_USAGE_LABELS = {
+    "style_generation": "출제 스타일 분석 후 새 문제 생성",
+    "exact_transcription": "해당 시험지 문제를 그대로 전사",
+    "both": "그대로 전사 + 스타일 기반 새 문제 생성",
+    "exclude": "참고 제외/보관만",
+}
+
+def _exam_meta_text(exam_scope_status: str, exam_usage_mode: str, exam_range_note: str) -> str:
+    scope = EXAM_SCOPE_LABELS.get(exam_scope_status or "unknown", exam_scope_status or "unknown")
+    usage = EXAM_USAGE_LABELS.get(exam_usage_mode or "style_generation", exam_usage_mode or "style_generation")
+    note = (exam_range_note or "").strip() or "없음"
+    return f"""[시험지 메타]
+시험범위 해당 여부: {scope}
+문제 사용 방식: {usage}
+범위/사용 메모: {note}
+""".strip()
 
 
 def _page(title: str, body: str) -> HTMLResponse:
@@ -116,7 +142,7 @@ def _page(title: str, body: str) -> HTMLResponse:
 </script></body></html>""")
 
 
-async def _save_uploaded_file(file: UploadFile, source_type: str, subject: str, title: str = "") -> dict:
+async def _save_uploaded_file(file: UploadFile, source_type: str, subject: str, title: str = "", exam_scope_status: str = "unknown", exam_usage_mode: str = "style_generation", exam_range_note: str = "") -> dict:
     suffix = Path(file.filename or "source.bin").suffix
     source_dir = UPLOAD_DIR / source_type
     source_dir.mkdir(parents=True, exist_ok=True)
@@ -134,16 +160,31 @@ async def _save_uploaded_file(file: UploadFile, source_type: str, subject: str, 
         stored = source_dir / f"{Path(tmp.name).name}-{safe_name}"
         shutil.move(tmp.name, stored)
         text, status = extract_text(stored, safe_name, file.content_type or "")
+        if source_type == "past_exam":
+            meta = _exam_meta_text(exam_scope_status, exam_usage_mode, exam_range_note)
+            text = meta + "\n\n" + (text or "")
+        else:
+            exam_scope_status = "unknown"
+            exam_usage_mode = "style_generation"
+            exam_range_note = ""
         inferred_title = title.strip() or Path(safe_name).stem or "untitled"
-        return save_source(inferred_title, source_type, safe_name, str(stored), file.content_type or "", size, text, status, subject=subject.strip())
+        return save_source(inferred_title, source_type, safe_name, str(stored), file.content_type or "", size, text, status, subject=subject.strip(), exam_scope_status=exam_scope_status, exam_usage_mode=exam_usage_mode, exam_range_note=exam_range_note.strip())
     finally:
         Path(tmp.name).unlink(missing_ok=True)
 
 
 def _upload_result(results: List[dict], subject: str = "") -> HTMLResponse:
-    rows = "".join(f"<tr><td><code>{escape(r.get('source_id',''))}</code></td><td>{escape(r.get('title',''))}</td><td>{escape(r.get('subject',''))}</td><td><span class='pill'>{escape(r.get('source_type',''))}</span></td><td>{r.get('chunk_count',0)}</td><td>{escape(r.get('extract_status',''))}</td></tr>" for r in results)
+    rows = "".join(f"<tr><td><code>{escape(r.get('source_id',''))}</code></td><td>{escape(r.get('title',''))}</td><td>{escape(r.get('subject',''))}</td><td><span class='pill'>{escape(r.get('source_type',''))}</span>{('<div class=\'hint\'>범위: ' + escape(EXAM_SCOPE_LABELS.get(r.get('exam_scope_status','unknown'), r.get('exam_scope_status','unknown'))) + '<br/>방식: ' + escape(EXAM_USAGE_LABELS.get(r.get('exam_usage_mode','style_generation'), r.get('exam_usage_mode','style_generation'))) + '</div>') if r.get('source_type') == 'past_exam' else ''}</td><td>{r.get('chunk_count',0)}</td><td>{escape(r.get('extract_status',''))}</td></tr>" for r in results)
     return _page("업로드 완료", f"<section class='top'><div><h1>업로드 완료</h1><p>{len(results)}개 파일을 저장했습니다.</p></div><div class='nav'><a class='btn secondary' href='/upload'>추가 업로드</a><a class='btn' href='/sources/manage?subject={escape(subject)}'>파일 관리</a></div></section><section class='card'><table><thead><tr><th>source_id</th><th>제목</th><th>과목</th><th>유형</th><th>chunks</th><th>상태</th></tr></thead><tbody>{rows}</tbody></table></section>")
 
+
+
+def _safe_download_headers(filename: str, mime_suffix: str) -> dict:
+    base = re.sub(r"[^A-Za-z0-9._-]+", "_", filename or "download").strip("._") or "download"
+    if not base.lower().endswith(mime_suffix.lower()):
+        base += mime_suffix
+    utf8_name = quote((filename or "download") + ("" if (filename or "").lower().endswith(mime_suffix.lower()) else mime_suffix))
+    return {"Content-Disposition": f'attachment; filename="{base}"; filename*=UTF-8\'\'{utf8_name}'}
 
 
 def _simple_markdown_html(markdown: str) -> str:
@@ -164,25 +205,62 @@ def _simple_markdown_html(markdown: str) -> str:
     return "\n".join(blocks)
 
 
+def _clean_markdown_inline_for_docx(value: str) -> str:
+    value = re.sub(r"`([^`]+)`", r"\1", value or "")
+    value = re.sub(r"\*\*([^*]+)\*\*", r"\1", value)
+    value = value.replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n")
+    value = re.sub(r"<[^>]+>", "", value)
+    return value
+
+
+def _add_markdown_runs_to_docx(paragraph, line: str) -> None:
+    from docx.enum.text import WD_COLOR_INDEX
+    pos = 0
+    for m in re.finditer(r"<mark>(.*?)</mark>", line, flags=re.S):
+        if m.start() > pos:
+            paragraph.add_run(_clean_markdown_inline_for_docx(line[pos:m.start()]))
+        run = paragraph.add_run(_clean_markdown_inline_for_docx(m.group(1)))
+        run.font.highlight_color = WD_COLOR_INDEX.YELLOW
+        pos = m.end()
+    if pos < len(line):
+        paragraph.add_run(_clean_markdown_inline_for_docx(line[pos:]))
+
+
 def _markdown_to_docx_bytes(title: str, markdown: str) -> BytesIO:
     from docx import Document
     from docx.shared import Inches
-    from docx.enum.text import WD_COLOR_INDEX
     doc = Document()
+    doc.core_properties.title = title or "Study Note"
     doc.add_heading(title or "Study Note", level=1)
     image_pattern = re.compile(r"!\[([^\]]*)\]\((data:image/[^;]+;base64,([^)]+))\)")
+    fenced = False
+    code_buffer = []
     for raw in (markdown or "").splitlines():
         line = raw.rstrip()
+        if line.strip().startswith("```"):
+            if fenced:
+                doc.add_paragraph("\n".join(code_buffer), style="Intense Quote")
+                code_buffer = []
+                fenced = False
+            else:
+                fenced = True
+            continue
+        if fenced:
+            code_buffer.append(line)
+            continue
         if not line:
             doc.add_paragraph("")
             continue
         img = image_pattern.search(line)
         if img:
             try:
-                bio = BytesIO(base64.b64decode(img.group(3)))
+                bio = BytesIO(base64.b64decode(img.group(3), validate=False))
                 doc.add_picture(bio, width=Inches(5.6))
+                caption = _clean_markdown_inline_for_docx(img.group(1) or "이미지")
+                if caption:
+                    doc.add_paragraph(caption)
             except Exception:
-                doc.add_paragraph("[이미지 삽입 실패]")
+                doc.add_paragraph("[이미지 삽입 실패: Study Note 화면에서 PDF 저장을 사용하세요]")
             continue
         level = 0
         if line.startswith("### "):
@@ -192,21 +270,15 @@ def _markdown_to_docx_bytes(title: str, markdown: str) -> BytesIO:
         elif line.startswith("# "):
             level, line = 1, line[2:]
         if level:
-            doc.add_heading(line, level=level)
+            doc.add_heading(_clean_markdown_inline_for_docx(line), level=level)
             continue
         style = "List Bullet" if line.startswith(('- ', '* ')) else None
         if style:
             line = line[2:]
         p = doc.add_paragraph(style=style) if style else doc.add_paragraph()
-        pos = 0
-        for m in re.finditer(r"<mark>(.*?)</mark>", line):
-            if m.start() > pos:
-                p.add_run(line[pos:m.start()])
-            run = p.add_run(m.group(1))
-            run.font.highlight_color = WD_COLOR_INDEX.YELLOW
-            pos = m.end()
-        if pos < len(line):
-            p.add_run(line[pos:])
+        _add_markdown_runs_to_docx(p, line)
+    if fenced and code_buffer:
+        doc.add_paragraph("\n".join(code_buffer), style="Intense Quote")
     out = BytesIO()
     doc.save(out)
     out.seek(0)
@@ -214,21 +286,24 @@ def _markdown_to_docx_bytes(title: str, markdown: str) -> BytesIO:
 
 @app.get("/health")
 def health():
-    return {"ok": True, "service": "lecturenote-suite", "version": "1.9.0"}
+    return {"ok": True, "service": "lecturenote-suite", "version": "2.2.0"}
 
 
 @app.get("/", response_class=HTMLResponse)
 def root():
     return _page("LectureNote Suite", """
-<section class="top"><div><h1>LectureNote Suite</h1><p>강의자료, 교재, 전사본, 시험지, 외부 정리본을 한 곳에 올리고 GPT Actions와 연결합니다.</p><div class="nav"><a class="btn" href="/upload">자료 업로드</a><a class="btn secondary" href="/static/study/index.html">정리본 보기</a><a class="btn secondary" href="/sources/manage">파일 관리</a><a class="btn secondary" href="/static/solvepad/index.html">SolvePad</a><a class="btn secondary" href="/static/casio/index.html">계산기 PRGM</a></div></div></section>
-<section class="grid"><div class="card"><h2>통합 자료 업로드</h2><p>강의자료, 교재, 전사본, 시험지, GPT 생성 정리본, 외부 정리본을 자료 유형으로 구분해 한 화면에서 올립니다. 제목은 파일명으로 자동 지정됩니다.</p><div class="actions"><a class="btn" href="/upload">열기</a></div></div><div class="card"><h2>정리본 / Study Note</h2><p>GPT 생성 정리본, 외부 정리본, 시험 직전 정리, 계산기 사용법을 열고 수정·저장·내보내기합니다.</p><div class="actions"><a class="btn" href="/static/study/index.html">열기</a></div></div><div class="card"><h2>SolvePad 문제풀이</h2><p>GPT가 만든 문제팩을 iPad에서 불러오고 필기 풀이를 저장합니다.</p><div class="actions"><a class="btn" href="/static/solvepad/index.html">열기</a></div></div><div class="card"><h2>CASIO 계산기 PRGM</h2><p>GPT가 생성한 계산기 코드와 사용법/구조 해설을 확인합니다.</p><div class="actions"><a class="btn" href="/static/casio/index.html">열기</a></div></div><div class="card"><h2>관리 / 상태</h2><p>업로드 파일 삭제, 매핑 현황, API 문서를 확인합니다.</p><div class="actions"><a class="btn secondary" href="/sources/manage">파일 관리</a><a class="btn secondary" href="/mapping/status">매핑</a><a class="btn secondary" href="/docs">API</a></div></div></section>""")
+<section class="top"><div><h1>LectureNote Suite</h1><p>강의자료, 교재, 전사본, 시험지, 외부 정리본을 한 곳에 올리고 GPT Actions와 연결합니다.</p><div class="nav"><a class="btn" href="/upload">자료 업로드</a><a class="btn secondary" href="/static/study/index.html">정리본 보기</a><a class="btn secondary" href="/sources/manage">파일 관리</a><a class="btn secondary" href="/dashboard">상태판</a><a class="btn secondary" href="/static/solvepad/index.html">SolvePad</a><a class="btn secondary" href="/static/casio/index.html">계산기 PRGM</a></div></div></section>
+<section class="grid"><div class="card"><h2>통합 자료 업로드</h2><p>강의자료, 교재, 전사본, 시험지, GPT 생성 정리본, 외부 정리본을 자료 유형으로 구분해 한 화면에서 올립니다. 제목은 파일명으로 자동 지정됩니다.</p><div class="actions"><a class="btn" href="/upload">열기</a></div></div><div class="card"><h2>정리본 / Study Note</h2><p>GPT 생성 정리본, 외부 정리본, 시험 직전 정리, 계산기 사용법을 열고 수정·저장·내보내기합니다.</p><div class="actions"><a class="btn" href="/static/study/index.html">열기</a></div></div><div class="card"><h2>SolvePad 문제풀이</h2><p>GPT가 만든 문제팩을 iPad에서 불러오고 필기 풀이를 저장합니다.</p><div class="actions"><a class="btn" href="/static/solvepad/index.html">열기</a></div></div><div class="card"><h2>CASIO 계산기 PRGM</h2><p>GPT가 생성한 계산기 코드와 사용법/구조 해설을 확인합니다.</p><div class="actions"><a class="btn" href="/static/casio/index.html">열기</a></div></div><div class="card"><h2>관리 / 상태</h2><p>업로드 파일 삭제, 매핑 현황, API 문서를 확인합니다.</p><div class="actions"><a class="btn secondary" href="/sources/manage">파일 관리</a><a class="btn secondary" href="/dashboard">상태판</a><a class="btn secondary" href="/mapping/status">매핑</a><a class="btn secondary" href="/docs">API</a></div></div></section>""")
 
 
 @app.get("/upload", response_class=HTMLResponse)
 def upload_page():
-    return _page("자료 업로드", f"""
+    options = _options('lecture_slides')
+    body = """
 <section class="top"><div><h1>통합 자료 업로드</h1><p>강의자료, 교재, 전사본, 시험지, 외부 정리본을 자료 유형으로 골라 한 번에 업로드합니다.</p></div><div class="nav"><a class="btn secondary" href="/">홈</a><a class="btn secondary" href="/sources/manage">파일 관리</a></div></section>
-<section class="card"><form action="/sources/upload-batch" method="post" enctype="multipart/form-data"><label>액션 키</label><input name="action_key" type="password" placeholder="처음 한 번만 입력하면 이 브라우저에 자동 저장" autocomplete="off"/><div class="keybox"><span class="key-status" data-key-status></span><button class="btn secondary" type="button" data-clear-key>저장된 키 지우기</button></div><div class="hint">보안 때문에 서버 전체 공개 업로드는 막아두고, 키는 이 브라우저 localStorage에만 저장합니다.</div><label>과목명</label><input name="subject" placeholder="예: CRE, 반응공학, 수학2"/><div class="hint">선택사항이지만 과목별 관리에는 입력 권장.</div><label>자료 유형</label><select name="source_type">{_options('lecture_slides')}</select><label>제목</label><input name="title" placeholder="선택사항. 비우면 각 파일명으로 자동 저장"/><label>파일</label><input type="file" name="files" multiple required/><div class="hint">여러 파일을 한 번에 선택 가능합니다.</div><div class="actions"><button type="submit">업로드</button><a class="btn secondary" href="/">홈으로</a></div></form></section>""")
+<section class="card"><form action="/sources/upload-batch" method="post" enctype="multipart/form-data"><label>액션 키</label><input name="action_key" type="password" placeholder="처음 한 번만 입력하면 이 브라우저에 자동 저장" autocomplete="off"/><div class="keybox"><span class="key-status" data-key-status></span><button class="btn secondary" type="button" data-clear-key>저장된 키 지우기</button></div><div class="hint">보안 때문에 서버 전체 공개 업로드는 막아두고, 키는 이 브라우저 localStorage에만 저장합니다.</div><label>과목명</label><input name="subject" placeholder="예: CRE, 반응공학, 수학2"/><div class="hint">선택사항이지만 과목별 관리에는 입력 권장.</div><label>자료 유형</label><select name="source_type" id="sourceTypeSelect">__OPTIONS__</select><div id="examMetaBox" class="exam-meta" hidden><h2>시험지/기출 사용 설정</h2><p class="hint">기출 업로드 시 현재 시험범위 해당 여부와 나중에 문제를 그대로 전사할지, 출제 스타일만 분석해 새 문제를 만들지 저장합니다.</p><label>현재 시험범위 해당 여부</label><select name="exam_scope_status"><option value="unknown">확인 안 됨</option><option value="in_scope">현재 시험범위 해당</option><option value="out_of_scope">현재 시험범위 아님</option><option value="mixed">일부만 해당</option></select><label>문제 사용 방식</label><select name="exam_usage_mode"><option value="style_generation">출제 스타일 분석 후 새 문제 생성</option><option value="exact_transcription">해당 시험지 문제 그대로 전사</option><option value="both">그대로 전사 + 새 문제 생성 둘 다</option><option value="exclude">참고 제외/보관만</option></select><label>범위/사용 메모</label><input name="exam_range_note" placeholder="예: 1~3단원만 해당, 2025 기말 형식 참고, 계산형 문제만 전사 등"/></div><label>제목</label><input name="title" placeholder="선택사항. 비우면 각 파일명으로 자동 저장"/><label>파일</label><input type="file" name="files" multiple required/><div class="hint">여러 파일을 한 번에 선택 가능합니다.</div><div class="actions"><button type="submit">업로드</button><a class="btn secondary" href="/">홈으로</a></div></form></section><script>document.addEventListener('DOMContentLoaded',function(){const sel=document.getElementById('sourceTypeSelect');const box=document.getElementById('examMetaBox');function sync(){if(box) box.hidden = sel.value !== 'past_exam';} if(sel){sel.addEventListener('change',sync); sync();}});</script>
+""".replace("__OPTIONS__", options)
+    return _page("자료 업로드", body)
 
 
 @app.get("/notes/upload", response_class=HTMLResponse)
@@ -239,20 +314,20 @@ def notes_upload_page():
 
 
 @app.post("/sources/upload")
-async def upload_source(source_type: str = Form(default="lecture_slides"), title: str = Form(default=""), subject: str = Form(default=""), action_key: str = Form(default=""), file: UploadFile = File(...), authorization: Optional[str] = Header(default=None), x_action_key: Optional[str] = Header(default=None)):
+async def upload_source(source_type: str = Form(default="lecture_slides"), title: str = Form(default=""), subject: str = Form(default=""), action_key: str = Form(default=""), exam_scope_status: str = Form(default="unknown"), exam_usage_mode: str = Form(default="style_generation"), exam_range_note: str = Form(default=""), file: UploadFile = File(...), authorization: Optional[str] = Header(default=None), x_action_key: Optional[str] = Header(default=None)):
     if not _is_authorized(authorization, x_action_key, action_key):
         raise HTTPException(status_code=401, detail="Invalid action key")
-    return _upload_result([await _save_uploaded_file(file, source_type, subject, title)], subject.strip())
+    return _upload_result([await _save_uploaded_file(file, source_type, subject, title, exam_scope_status, exam_usage_mode, exam_range_note)], subject.strip())
 
 
 @app.post("/sources/upload-batch")
-async def upload_sources_batch(source_type: str = Form(default="lecture_slides"), title: str = Form(default=""), subject: str = Form(default=""), action_key: str = Form(default=""), files: List[UploadFile] = File(...), authorization: Optional[str] = Header(default=None), x_action_key: Optional[str] = Header(default=None)):
+async def upload_sources_batch(source_type: str = Form(default="lecture_slides"), title: str = Form(default=""), subject: str = Form(default=""), action_key: str = Form(default=""), exam_scope_status: str = Form(default="unknown"), exam_usage_mode: str = Form(default="style_generation"), exam_range_note: str = Form(default=""), files: List[UploadFile] = File(...), authorization: Optional[str] = Header(default=None), x_action_key: Optional[str] = Header(default=None)):
     if not _is_authorized(authorization, x_action_key, action_key):
         raise HTTPException(status_code=401, detail="Invalid action key")
     results = []
     for i, file in enumerate(files, 1):
         item_title = f"{title.strip()} {i}" if title.strip() and len(files) > 1 else title.strip()
-        results.append(await _save_uploaded_file(file, source_type, subject, item_title))
+        results.append(await _save_uploaded_file(file, source_type, subject, item_title, exam_scope_status, exam_usage_mode, exam_range_note))
     return _upload_result(results, subject.strip())
 
 
@@ -298,6 +373,11 @@ def source_detail(source_id: str):
     if not source:
         raise HTTPException(status_code=404, detail="Source not found")
     return source
+
+
+@app.get("/dashboard", dependencies=[Depends(require_auth)])
+def dashboard_endpoint(subject: str = Query(default=""), limit: int = Query(default=8)):
+    return get_dashboard(subject, limit)
 
 
 @app.get("/mapping/status", dependencies=[Depends(require_auth)])
@@ -518,7 +598,7 @@ def download_study_note_md(source_id: str):
     return Response(
         note.get("markdown", ""),
         media_type="text/markdown; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{title}.md"'},
+        headers=_safe_download_headers(title, ".md"),
     )
 
 
@@ -528,11 +608,14 @@ def download_study_note_docx(source_id: str):
     if not note:
         raise HTTPException(status_code=404, detail="Study note not found")
     title = note["source"].get("title", source_id).replace('/', '_')
-    out = _markdown_to_docx_bytes(title, note.get("markdown", ""))
+    try:
+        out = _markdown_to_docx_bytes(title, note.get("markdown", ""))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"DOCX export failed: {exc}")
     return StreamingResponse(
         out,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        headers={"Content-Disposition": f'attachment; filename="{title}.docx"'},
+        headers=_safe_download_headers(title, ".docx"),
     )
 
 
