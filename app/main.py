@@ -40,7 +40,7 @@ from app.modules.prgm_engine import generate_txt_files, validate_blueprint
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "static"
 
-app = FastAPI(title="LectureNote Suite", version="2.2.7")
+app = FastAPI(title="LectureNote Suite", version="2.2.8")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"], allow_credentials=False)
 app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
 init_db()
@@ -96,7 +96,7 @@ def _exam_meta_text(exam_scope_status: str, exam_usage_mode: str, exam_range_not
 
 def _page(title: str, body: str) -> HTMLResponse:
     return HTMLResponse(f"""<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>{escape(title)}</title><style>
-:root{{--bg:#f6f7fb;--card:#fff;--text:#171923;--muted:#667085;--line:#e4e7ec;--accent:#4f46e5;--accent2:#eef2ff;--danger:#d92d20;--ok:#047857}}*{{box-sizing:border-box}}body{{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans KR',Arial,sans-serif;background:linear-gradient(180deg,#f8f9ff 0%,#f6f7fb 42%,#f3f4f8 100%);color:var(--text)}}.wrap{{max-width:1120px;margin:0 auto;padding:32px 20px 56px}}.top{{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:24px}}h1{{font-size:30px;line-height:1.2;margin:0 0 8px;letter-spacing:-.035em}}h2{{margin:0 0 8px;font-size:20px;letter-spacing:-.02em}}p{{margin:0;color:var(--muted);line-height:1.6}}.nav,.actions{{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}}a.btn,button,.btn{{border:0;border-radius:12px;padding:10px 14px;background:var(--accent);color:#fff;text-decoration:none;font-weight:750;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px}}a.btn.secondary,.btn.secondary{{background:var(--accent2);color:var(--accent)}}button.danger{{background:var(--danger)}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}}.card{{background:rgba(255,255,255,.92);border:1px solid var(--line);border-radius:22px;padding:22px;box-shadow:0 12px 34px rgba(16,24,40,.06);backdrop-filter:blur(8px)}}label{{display:block;font-weight:760;margin:16px 0 8px}}input,select{{width:100%;border:1px solid var(--line);border-radius:13px;padding:12px 13px;font-size:15px;background:white;outline:none}}input:focus,select:focus{{border-color:#818cf8;box-shadow:0 0 0 4px rgba(79,70,229,.12)}}input[type=file]{{padding:16px;border-style:dashed;background:#fbfcff}}.hint{{font-size:13px;color:var(--muted);margin-top:6px}}.keybox{{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px}}.keybox label{{margin:0;font-weight:600;color:var(--muted);font-size:13px;display:flex;gap:6px;align-items:center}}.keybox input[type=checkbox]{{width:auto}}.key-status{{font-size:13px;color:var(--ok);font-weight:700}}table{{width:100%;border-collapse:collapse;background:white;border-radius:16px;overflow:hidden}}th,td{{border-bottom:1px solid var(--line);padding:12px;text-align:left;vertical-align:top;font-size:14px}}th{{background:#f9fafb;color:#344054;font-size:13px}}code{{background:#f2f4f7;padding:2px 6px;border-radius:6px}}.pill{{display:inline-block;padding:4px 8px;border-radius:999px;background:var(--accent2);color:var(--accent);font-size:12px;font-weight:800}}.muted{{color:var(--muted)}}.kbd{{border:1px solid var(--line);background:#fff;border-radius:8px;padding:2px 7px;font-size:12px;color:#344054}}@media(max-width:640px){{.top{{display:block}}.wrap{{padding:22px 14px}}h1{{font-size:25px}}}}</style></head><body><main class="wrap">{body}</main><script>
+:root{{--bg:#f6f7fb;--card:#fff;--text:#171923;--muted:#667085;--line:#e4e7ec;--accent:#4f46e5;--accent2:#eef2ff;--danger:#d92d20;--ok:#047857}}*{{box-sizing:border-box}}body{{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans KR',Arial,sans-serif;background:linear-gradient(180deg,#f8f9ff 0%,#f6f7fb 42%,#f3f4f8 100%);color:var(--text)}}.wrap{{max-width:1120px;margin:0 auto;padding:32px 20px 56px}}.top{{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:24px}}h1{{font-size:30px;line-height:1.2;margin:0 0 8px;letter-spacing:-.035em}}h2{{margin:0 0 8px;font-size:20px;letter-spacing:-.02em}}p{{margin:0;color:var(--muted);line-height:1.6}}.nav,.actions{{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}}a.btn,button,.btn{{border:0;border-radius:12px;padding:10px 14px;background:var(--accent);color:#fff;text-decoration:none;font-weight:750;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px}}a.btn.secondary,.btn.secondary{{background:var(--accent2);color:var(--accent)}}button.danger{{background:var(--danger)}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}}.card{{background:rgba(255,255,255,.92);border:1px solid var(--line);border-radius:22px;padding:22px;box-shadow:0 12px 34px rgba(16,24,40,.06);backdrop-filter:blur(8px)}}label{{display:block;font-weight:760;margin:16px 0 8px}}input,select{{width:100%;border:1px solid var(--line);border-radius:13px;padding:12px 13px;font-size:15px;background:white;outline:none}}input:focus,select:focus{{border-color:#818cf8;box-shadow:0 0 0 4px rgba(79,70,229,.12)}}input[type=file]{{padding:16px;border-style:dashed;background:#fbfcff}}input[type=checkbox]{{width:auto;accent-color:var(--accent)}}.hint{{font-size:13px;color:var(--muted);margin-top:6px}}.keybox{{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px}}.keybox label{{margin:0;font-weight:600;color:var(--muted);font-size:13px;display:flex;gap:6px;align-items:center}}.keybox input[type=checkbox]{{width:auto}}.key-status{{font-size:13px;color:var(--ok);font-weight:700}}table{{width:100%;border-collapse:collapse;background:white;border-radius:16px;overflow:hidden}}th,td{{border-bottom:1px solid var(--line);padding:12px;text-align:left;vertical-align:top;font-size:14px}}th{{background:#f9fafb;color:#344054;font-size:13px}}code{{background:#f2f4f7;padding:2px 6px;border-radius:6px}}.pill{{display:inline-block;padding:4px 8px;border-radius:999px;background:var(--accent2);color:var(--accent);font-size:12px;font-weight:800}}.muted{{color:var(--muted)}}.kbd{{border:1px solid var(--line);background:#fff;border-radius:8px;padding:2px 7px;font-size:12px;color:#344054}}@media(max-width:640px){{.top{{display:block}}.wrap{{padding:22px 14px}}h1{{font-size:25px}}}}</style></head><body><main class="wrap">{body}</main><script>
 (function(){{
   const KEY = "lecturenote_action_key";
   const SUBJECT = "lecturenote_subject";
@@ -447,7 +447,7 @@ def _markdown_to_docx_bytes(title: str, markdown: str) -> BytesIO:
 
 @app.get("/health")
 def health():
-    return {"ok": True, "service": "lecturenote-suite", "version": "2.2.7"}
+    return {"ok": True, "service": "lecturenote-suite", "version": "2.2.8"}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -596,10 +596,26 @@ def external_notes_endpoint(subject: str = Query(default="")):
 def manage_sources_page(subject: str = Query(default=""), action_key: str = Query(default="")):
     rows = []
     for s in list_sources(subject=subject):
-        sid = escape(s.get("id", ""))
-        rows.append(f"<tr><td><span class='pill'>{escape(s.get('subject','') or '미지정')}</span></td><td>{escape(s.get('source_type',''))}</td><td>{escape(s.get('title',''))}<div class='hint'><code>{sid}</code></div></td><td>{escape(s.get('original_name',''))}</td><td>{escape(s.get('created_at',''))}</td><td><form action='/sources/{sid}/delete' method='post' onsubmit=\"return confirm('이 자료를 삭제할까요?');\"><input type='hidden' name='action_key' value='{escape(action_key)}'/><button class='danger' type='submit'>삭제</button></form></td></tr>")
-    table_rows = "\n".join(rows) or "<tr><td colspan='6' class='muted'>업로드된 자료가 없습니다.</td></tr>"
-    return _page("업로드 파일 관리", f"<section class='top'><div><h1>업로드 파일 관리</h1><p>업로드한 자료를 과목별로 확인하고 삭제할 수 있습니다.</p></div><div class='nav'><a class='btn secondary' href='/upload'>자료 업로드</a><a class='btn secondary' href='/'>홈</a></div></section><section class='card'><form method='get' action='/sources/manage'><label>과목 필터</label><input name='subject' value='{escape(subject)}' placeholder='예: CRE'/><label>액션 키</label><input name='action_key' type='password' value='{escape(action_key)}' placeholder='처음 한 번 입력하면 자동 저장'/><div class='keybox'><span class='key-status' data-key-status></span><button class='btn secondary' type='button' data-clear-key>저장된 키 지우기</button></div><div class='actions'><button type='submit'>적용</button><a class='btn secondary' href='/mapping/status?subject={escape(subject)}'>매핑 현황</a></div></form></section><section class='card' style='margin-top:16px;overflow:auto'><table><thead><tr><th>과목</th><th>유형</th><th>제목/source_id</th><th>파일</th><th>생성일</th><th>작업</th></tr></thead><tbody>{table_rows}</tbody></table></section>")
+        raw_sid = s.get("id", "")
+        sid = escape(raw_sid)
+        rows.append(
+            "<tr>"
+            f"<td><input type='checkbox' name='source_ids' value='{sid}' data-source-check aria-label='자료 선택'/></td>"
+            f"<td><span class='pill'>{escape(s.get('subject','') or '미지정')}</span></td>"
+            f"<td>{escape(s.get('source_type',''))}</td>"
+            f"<td>{escape(s.get('title',''))}<div class='hint'><code>{sid}</code></div></td>"
+            f"<td>{escape(s.get('original_name',''))}</td>"
+            f"<td>{escape(s.get('created_at',''))}</td>"
+            f"<td><button class='danger' type='submit' name='source_ids' value='{sid}' onclick=\"return confirm('이 자료를 삭제할까요?');\">삭제</button></td>"
+            "</tr>"
+        )
+    table_rows = "\n".join(rows) or "<tr><td colspan='7' class='muted'>업로드된 자료가 없습니다.</td></tr>"
+    return _page(
+        "업로드 파일 관리",
+        f"""<section class='top'><div><h1>업로드 파일 관리</h1><p>업로드한 자료를 과목별로 확인하고 삭제할 수 있습니다.</p></div><div class='nav'><a class='btn secondary' href='/upload'>자료 업로드</a><a class='btn secondary' href='/'>홈</a></div></section>
+<section class='card'><form method='get' action='/sources/manage'><label>과목 필터</label><input name='subject' value='{escape(subject)}' placeholder='예: CRE'/><label>액션 키</label><input name='action_key' type='password' value='{escape(action_key)}' placeholder='처음 한 번 입력하면 자동 저장'/><div class='keybox'><span class='key-status' data-key-status></span><button class='btn secondary' type='button' data-clear-key>저장된 키 지우기</button></div><div class='actions'><button type='submit'>적용</button><a class='btn secondary' href='/status?subject={escape(subject)}'>상태판/매핑</a></div></form></section>
+<section class='card' style='margin-top:16px;overflow:auto'><form action='/sources/delete-batch' method='post' onsubmit="const n=document.querySelectorAll('[data-source-check]:checked').length; if(!n && !event.submitter?.value){{alert('삭제할 자료를 선택하세요.'); return false;}} return confirm((n || 1)+'개 자료를 삭제할까요?');"><input type='hidden' name='action_key' value='{escape(action_key)}'/><input type='hidden' name='subject' value='{escape(subject)}'/><div class='actions' style='justify-content:space-between;align-items:center;margin-top:0;margin-bottom:12px'><label style='margin:0;display:flex;gap:8px;align-items:center'><input type='checkbox' id='selectAllSources' onclick="document.querySelectorAll('[data-source-check]').forEach(cb=>cb.checked=this.checked)"/> 전체 선택</label><button class='danger' type='submit'>선택 삭제</button></div><table><thead><tr><th>선택</th><th>과목</th><th>유형</th><th>제목/source_id</th><th>파일</th><th>생성일</th><th>작업</th></tr></thead><tbody>{table_rows}</tbody></table></form></section>""",
+    )
 
 
 @app.get("/sources/{source_id}")
@@ -636,6 +652,47 @@ def delete_source_form_endpoint(source_id: str, action_key: str = Form(default="
     if not result:
         raise HTTPException(status_code=404, detail="Source not found")
     return _page("삭제 완료", f"<section class='top'><div><h1>삭제 완료</h1><p>자료와 추출 chunk를 삭제했습니다.</p></div><div class='nav'><a class='btn' href='/sources/manage?action_key={escape(action_key)}'>파일 관리로 돌아가기</a></div></section><section class='card'><p><b>제목:</b> {escape(result.get('deleted_title',''))}</p><p><b>source_id:</b> <code>{escape(result.get('deleted_source_id',''))}</code></p><p><b>삭제 chunks:</b> {result.get('deleted_chunks')}</p><p><b>파일 삭제:</b> {result.get('deleted_file')}</p></section>")
+
+
+@app.post("/sources/delete-batch")
+def delete_sources_batch_endpoint(action_key: str = Form(default=""), subject: str = Form(default=""), source_ids: Optional[List[str]] = Form(default=None)):
+    if not _is_authorized(action_key=action_key):
+        raise HTTPException(status_code=401, detail="Invalid action key")
+    ids = []
+    seen = set()
+    for sid in source_ids or []:
+        clean = (sid or "").strip()
+        if clean and clean not in seen:
+            seen.add(clean)
+            ids.append(clean)
+    if not ids:
+        return _page("삭제할 자료 없음", f"<section class='top'><div><h1>삭제할 자료가 없습니다</h1><p>파일 관리에서 삭제할 자료를 먼저 선택하세요.</p></div><div class='nav'><a class='btn' href='/sources/manage?action_key={escape(action_key)}&subject={escape(subject)}'>파일 관리로 돌아가기</a></div></section>")
+    deleted = []
+    missing = []
+    for sid in ids:
+        result = delete_source(sid)
+        if result:
+            deleted.append(result)
+        else:
+            missing.append(sid)
+    rows = "".join(
+        "<tr>"
+        f"<td>{escape(item.get('deleted_title',''))}</td>"
+        f"<td><code>{escape(item.get('deleted_source_id',''))}</code></td>"
+        f"<td>{item.get('deleted_chunks', 0)}</td>"
+        f"<td>{escape(str(item.get('deleted_file', '')))}</td>"
+        "</tr>"
+        for item in deleted
+    )
+    if not rows:
+        rows = "<tr><td colspan='4' class='muted'>삭제된 자료가 없습니다.</td></tr>"
+    missing_html = ""
+    if missing:
+        missing_html = "<p class='hint'>찾을 수 없는 source_id: " + ", ".join(f"<code>{escape(x)}</code>" for x in missing) + "</p>"
+    return _page(
+        "선택 삭제 완료",
+        f"<section class='top'><div><h1>선택 삭제 완료</h1><p>{len(deleted)}개 자료를 삭제했습니다.</p>{missing_html}</div><div class='nav'><a class='btn' href='/sources/manage?action_key={escape(action_key)}&subject={escape(subject)}'>파일 관리로 돌아가기</a><a class='btn secondary' href='/'>홈</a></div></section><section class='card'><table><thead><tr><th>제목</th><th>source_id</th><th>삭제 chunks</th><th>파일 삭제</th></tr></thead><tbody>{rows}</tbody></table></section>",
+    )
 
 
 @app.post("/sources/search", dependencies=[Depends(require_auth)])
