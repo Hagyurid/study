@@ -295,7 +295,7 @@ paths:
   /problem-packs:
     post:
       operationId: saveProblemPack
-      summary: Save a SolvePad problem pack and return an import URL.
+      summary: Save a SolvePad problem pack and return an open_url that auto-imports it into SolvePad without manual upload.
       requestBody:
         required: true
         content:
@@ -304,15 +304,18 @@ paths:
               type: object
               required:
                 - title
-                - pack
               properties:
                 title:
                   type: string
                 pack:
                   type: object
+                  description: SolvePad problem pack object.
+                pack_json:
+                  type: string
+                  description: JSON object text fallback for Custom GPT Actions reliability. Use when object transmission is unstable.
       responses:
         "200":
-          description: Saved problem pack.
+          description: Saved problem pack with open_url/import_url/solvepad_url.
 
   /calculator/projects:
     get:
@@ -366,12 +369,14 @@ paths:
               type: object
               required:
                 - title
-                - blueprint
               properties:
                 title:
                   type: string
                 blueprint:
                   type: object
+                blueprint_json:
+                  type: string
+                  description: JSON object text fallback for Custom GPT Actions reliability.
                 metadata:
                   type: object
                 analysis_markdown:
@@ -387,7 +392,7 @@ paths:
   /calculator/generate:
     post:
       operationId: generateCalculatorProgram
-      summary: Generate CASIO PRGM TXT files from a blueprint and save analysis/manual.
+      summary: Generate CASIO PRGM TXT files, save the calculator project, and return an open_url that opens it in CASIO PRGM Studio without manual upload.
       requestBody:
         required: true
         content:
@@ -396,12 +401,14 @@ paths:
               type: object
               required:
                 - title
-                - blueprint
               properties:
                 title:
                   type: string
                 blueprint:
                   type: object
+                blueprint_json:
+                  type: string
+                  description: JSON object text fallback for Custom GPT Actions reliability.
                 metadata:
                   type: object
                 analysis_markdown:
@@ -412,7 +419,7 @@ paths:
                   type: string
       responses:
         "200":
-          description: Generated calculator program.
+          description: Generated calculator project with open_url/studio_url/casio_url/download_url.
 
   /transcripts/revisions:
     post:

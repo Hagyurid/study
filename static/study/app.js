@@ -73,10 +73,12 @@ function parseSlideMarker(line) {
   if (!sourceId) return null;
   return { sourceId, page, zoom, caption };
 }
+function slideMarkerAttr(value) { return String(value ?? '').replace(/[\r\n\t]+/g, ' ').replace(/"/g, "'").trim(); }
 function slideMarkerMarkdown(sourceId, page, caption, zoom) {
-  const cap = String(caption || `슬라이드 ${sourceId} p.${page}`).replace(/"/g, '&quot;');
-  const z = zoom ? ` zoom="${String(zoom).replace(/"/g, '&quot;')}"` : '';
-  return `[[SLIDE_IMAGE source_id="${String(sourceId).replace(/"/g, '&quot;')}" page="${page}" caption="${cap}"${z}]]`;
+  const src = slideMarkerAttr(sourceId);
+  const cap = slideMarkerAttr(caption || `슬라이드 ${src} p.${page}`);
+  const z = zoom ? ` zoom="${slideMarkerAttr(zoom)}"` : '';
+  return `[[SLIDE_IMAGE source_id="${src}" page="${page}" caption="${cap}"${z}]]`;
 }
 function slideFigureHtml(info) {
   const safeSource = attr(info.sourceId);
@@ -344,7 +346,26 @@ async function listNotes() {
 }
 async function openNote(id) { try { const data = await api('/study/notes/' + encodeURIComponent(id), { headers: headers(false) }); currentSourceId = id; currentSourceType = data.source?.source_type || 'generated_note'; $('title').value = data.source?.title || ''; await renderMarkdown(data.markdown || ''); status('열림: ' + id); } catch (e) { alert(e.message); } }
 async function newNote(type) { currentSourceId = ''; currentSourceType = type; $('title').value = type === 'exam_cram' ? '시험 직전 정리' : '새 정리본'; const initial = type === 'exam_cram' ? '# 시험 직전 정리\n\n## 1. 직전 암기\n\n## 2. 오답 주의사항\n\n## 3. 주요 개념\n\n## 4. 마지막 확인\n' : '# 새 정리본\n\n내용을 입력하세요. 수식은 $...$ 또는 $$...$$ 형태로 유지됩니다.\n'; await renderMarkdown(initial); status('새 문서'); }
-async function saveNote() { try { syncMarkdownFromDocument(); const payload = { title: $('title').value.trim() || 'Untitled', content_markdown: $('markdown').value, change_summary: 'edited in Study Note Studio' }; let data; if (currentSourceId) data = await api('/study/notes/' + encodeURIComponent(currentSourceId), { method: 'PUT', headers: headers(), body: JSON.stringify(payload) }); else { data = await api('/study/notes', { method: 'POST', headers: headers(), body: JSON.stringify({ ...payload, subject: subject(), source_type: currentSourceType, replace_latest: false }) }); currentSourceId = data.source_id; } status('저장됨'); await listNotes(); return data; } catch (e) { status('오류'); alert(e.message); } }
+async function saveNote() {
+  try {
+    syncMarkdownFromDocument();
+    const payload = { title: $('title').value.trim() || 'Untitled', content_markdown: $('markdown').value, change_summary: 'edited in Study Note Studio', auto_slide_images: true };
+    let data;
+    if (currentSourceId) {
+      data = await api('/study/notes/' + encodeURIComponent(currentSourceId), { method: 'PUT', headers: headers(), body: JSON.stringify(payload) });
+    } else {
+      data = await api('/study/notes', { method: 'POST', headers: headers(), body: JSON.stringify({ ...payload, subject: subject(), source_type: currentSourceType, replace_latest: false }) });
+      currentSourceId = data.source_id;
+    }
+    if (typeof data.content_markdown === 'string' && data.content_markdown !== $('markdown').value) {
+      await renderMarkdown(data.content_markdown);
+    }
+    const inserted = Number(data.auto_slide_markers_inserted || 0);
+    status(inserted ? `저장됨 · 슬라이드 ${inserted}개 자동 보강` : '저장됨');
+    await listNotes();
+    return data;
+  } catch (e) { status('오류'); alert(e.message); }
+}
 
 function wrapRangeWithMark(range) { const mark = document.createElement('mark'); try { range.surroundContents(mark); } catch (_) { const contents = range.extractContents(); mark.appendChild(contents); range.insertNode(mark); } }
 function highlightSelection() { const sel = window.getSelection(); if (!sel || !sel.rangeCount || sel.isCollapsed) return alert('형광펜 칠할 텍스트를 먼저 드래그해서 선택하세요.'); const range = sel.getRangeAt(0); if (!$('doc').contains(range.commonAncestorContainer)) return alert('정리본 본문 안의 텍스트를 선택하세요.'); wrapRangeWithMark(range); sel.removeAllRanges(); syncMarkdownFromDocument(); }

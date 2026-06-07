@@ -299,3 +299,8 @@ difficulty 5:
 16. subject, folder, unit이 비어 있지 않은가?
 17. difficulty가 1~5 정수인가?
 18. estimatedMinutes가 정수인가?
+
+
+[저장 및 바로 가져오기 규칙]
+
+문제팩 완성 후에는 가능한 경우 반드시 saveProblemPack을 호출한다. 저장 성공 시 응답의 import_url 또는 open_url을 사용자에게 제공한다. 사용자는 JSON 파일을 따로 업로드하지 않고 해당 URL로 SolvePad에 바로 가져온다. 사용자가 “JSON만”이라고 명시한 경우에만 순수 JSON을 출력한다. 그 외에는 raw JSON 전체 출력보다 저장된 문제팩 링크 안내를 우선한다.

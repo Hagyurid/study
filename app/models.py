@@ -36,13 +36,15 @@ class GenericItemsSave(BaseModel):
 
 
 class ProblemPackSave(BaseModel):
-    title: str
-    pack: Dict[str, Any]
+    title: str = "SolvePad Problem Pack"
+    pack: Dict[str, Any] = Field(default_factory=dict)
+    pack_json: str = ""
 
 
 class CalculatorBlueprintSave(BaseModel):
-    title: str
-    blueprint: Dict[str, Any]
+    title: str = "CASIO PRGM Project"
+    blueprint: Dict[str, Any] = Field(default_factory=dict)
+    blueprint_json: str = ""
     metadata: Dict[str, Any] = Field(default_factory=dict)
     analysis_markdown: str = ""
     manual_markdown: str = ""
@@ -80,6 +82,7 @@ class NoteVersionSave(BaseModel):
     change_summary: str = ""
     based_on_version: Optional[int] = None
     replace_latest: bool = False
+    auto_slide_images: bool = True
 
 
 class TranscriptRevisionSave(BaseModel):
@@ -133,12 +136,14 @@ class StudyNoteSave(BaseModel):
     series_id: str = ""
     change_summary: str = ""
     replace_latest: bool = True
+    auto_slide_images: bool = True
 
 
 class StudyNoteUpdate(BaseModel):
     title: str = ""
     content_markdown: str
     change_summary: str = "edited in Study Note Studio"
+    auto_slide_images: bool = True
 
 
 class ExamCramSave(BaseModel):
@@ -148,3 +153,4 @@ class ExamCramSave(BaseModel):
     series_id: str = ""
     change_summary: str = "exam cram update"
     replace_latest: bool = True
+    auto_slide_images: bool = True

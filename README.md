@@ -500,3 +500,52 @@ Study Note export now converts Markdown tables into real DOCX/print tables. Stud
 - 파일 관리 화면(`/sources/manage`)에 자료 유형 필터를 추가했습니다.
 - 과목 필터 + 유형 필터 + 선택 일괄 삭제를 함께 사용할 수 있습니다.
 - 서버 버전: `2.2.9`
+
+## v22.14 local patch: automatic slide insertion repair
+
+수정 범위는 운영 동작에 필요한 코드와 테스트, README 기록으로 제한했습니다. Custom GPT Instructions/Knowledge 문서는 수정하지 않았습니다.
+
+### 수정 내용
+
+- Study Note 저장 시 슬라이드 자리표시자를 실제 `SLIDE_IMAGE` 마커로 자동 보강합니다.
+  - `[슬라이드 2]`
+  - `[이미지 카드: slide 2]`
+  - `{{slide:2}}`
+  - `[[SLIDE page="2"]]`
+  - `[[SLIDE_IMAGE page="2" caption="..."]]`처럼 source_id가 빠진 마커
+- 과목에 PDF `lecture_slides` 자료가 있으면 가장 최근 PDF 강의자료를 기본 슬라이드 source로 사용합니다.
+- 단원 매핑의 `lectureAnchor.sourceId`와 `slideRange/pageRange`가 있고, 정리본 heading이 단원명과 일치하면 해당 heading 아래에 슬라이드 마커를 자동 삽입합니다.
+- PDF 페이지 렌더링에 LRU cache를 추가해 Word/PDF/Study Note 화면에서 같은 슬라이드를 반복 렌더링할 때의 비용을 줄였습니다.
+- Study Note Studio 저장 후 서버가 자동 보강한 Markdown을 즉시 다시 렌더링하도록 수정했습니다.
+- 슬라이드 마커 attribute 따옴표 처리 방식을 보정했습니다.
+
+### 검증
+
+```bash
+pytest -q
+# 27 passed
+```
+
+## v22.15 local patch: generated artifact auto-open integration
+
+수정 범위는 운영 동작에 필요한 코드, Action 스키마, 테스트, README 기록으로 제한했습니다. Custom GPT Instructions/Knowledge 문서는 수정하지 않았습니다.
+
+### 수정 내용
+
+- GPT가 문제팩을 생성해 `/problem-packs`에 저장하면 `open_url`, `import_url`, `solvepad_url`을 함께 반환합니다.
+  - 해당 링크를 열면 SolvePad가 `importToken`으로 서버 저장 문제팩을 가져와 자동 저장하고 바로 엽니다.
+  - 수동 JSON 붙여넣기/파일 업로드 없이 확인할 수 있습니다.
+- GPT가 계산기 PRGM 설계도를 `/calculator/generate`로 생성하면 `open_url`, `studio_url`, `casio_url`, `download_url`을 함께 반환합니다.
+  - 해당 링크를 열면 CASIO PRGM Studio가 `projectId`로 저장 프로젝트를 바로 불러옵니다.
+  - 생성된 TXT 파일, 분석, 사용법 문서를 Studio에서 바로 확인할 수 있습니다.
+- GPT Actions에서 큰 JSON 객체 전달이 흔들릴 때를 대비해 문자열 fallback을 추가했습니다.
+  - 문제팩: `pack` 또는 `pack_json`
+  - 계산기 설계도: `blueprint` 또는 `blueprint_json`
+- Action OpenAPI 문서도 위 fallback 및 자동 열기 URL 반환 구조에 맞게 갱신했습니다.
+
+### 검증
+
+```bash
+pytest -q
+# 29 passed
+```

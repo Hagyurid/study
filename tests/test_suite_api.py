@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 from fastapi.testclient import TestClient
 from app.main import app
 
@@ -176,6 +177,29 @@ def test_problem_pack_flow():
     fetched = client.get(f"/packs/{token}")
     assert fetched.status_code == 200
     assert fetched.json()["pack"]["packId"] == "test-pack"
+
+
+
+
+def test_problem_pack_json_fallback_and_open_url():
+    pack = {
+        "packId": "test-pack-json-fallback",
+        "title": "JSON Fallback Pack",
+        "questions": [{
+            "id": "q001",
+            "title": "Q1",
+            "promptMd": "Solve.",
+            "answer": {"value": "1"},
+            "solution": {"concepts": [], "actualSolution": [], "cautions": [], "tips": []}
+        }]
+    }
+    response = client.post("/problem-packs", json={"title": "JSON Fallback Pack", "pack_json": json.dumps(pack, ensure_ascii=False)})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["open_url"] == data["import_url"] == data["solvepad_url"]
+    assert "/static/solvepad/index.html" in data["open_url"]
+    assert "importToken=" in data["open_url"]
+    assert client.get(f"/packs/{data['token']}").json()["pack"]["packId"] == "test-pack-json-fallback"
 
 
 def test_calculator_validation():
@@ -425,6 +449,28 @@ def test_calculator_generate_manual_and_replace_flow():
     assert fetched2.json()["manual_markdown"] == "# 새 사용법"
 
 
+
+
+def test_calculator_blueprint_json_fallback_and_open_url():
+    blueprint = {
+        "meta": {"graphEnabled": False, "strictFinalNames": True},
+        "files": [{"name": "MAIN", "lines": [{"type": "text", "value": "HELLO"}]}]
+    }
+    response = client.post("/calculator/generate", json={
+        "title": "Calc JSON Fallback",
+        "blueprint_json": json.dumps(blueprint, ensure_ascii=False),
+        "metadata": {"subject": "CRE"}
+    })
+    assert response.status_code == 200
+    data = response.json()
+    assert data["open_url"] == data["studio_url"] == data["casio_url"]
+    assert "/static/casio/index.html?projectId=" in data["open_url"]
+    assert data["download_url"].endswith("/download.zip")
+    fetched = client.get(f"/calculator/projects/{data['calculator_project_id']}")
+    assert fetched.status_code == 200
+    assert fetched.json()["blueprint"]["files"][0]["name"] == "MAIN"
+
+
 def test_note_version_replace_latest_flow():
     v1 = client.post("/notes/versions", json={"title": "Replace Note", "content_markdown": "# old", "subject": "CRE"})
     assert v1.status_code == 200
@@ -646,3 +692,97 @@ def test_v22_dashboard_and_openapi_contract():
     assert 'schemas: {}' in schema_text
     assert 'operationId: getDashboard' in schema_text
     assert schema_text.count('operationId:') <= 30
+
+
+def _make_test_pdf(path: Path, pages: int = 3) -> None:
+    import fitz
+    doc = fitz.open()
+    try:
+        for idx in range(pages):
+            page = doc.new_page()
+            page.insert_text((72, 72), f"Slide {idx + 1}")
+        doc.save(str(path))
+    finally:
+        doc.close()
+
+
+def test_auto_slide_placeholder_conversion_and_rendering(tmp_path):
+    from app.db import save_source
+
+    pdf_path = tmp_path / "auto-slides.pdf"
+    _make_test_pdf(pdf_path, pages=3)
+    slide = save_source(
+        "Auto Slides",
+        "lecture_slides",
+        "auto-slides.pdf",
+        str(pdf_path),
+        "application/pdf",
+        pdf_path.stat().st_size,
+        "Auto slide deck text",
+        "pdf_extracted",
+        subject="AUTO_SLIDE",
+    )
+    response = client.post("/study/notes", json={
+        "title": "Auto Slide Note",
+        "subject": "AUTO_SLIDE",
+        "source_type": "generated_note",
+        "content_markdown": "# Auto Slide Note\n\n[슬라이드 2]\n\n본문",
+        "replace_latest": False,
+    })
+    assert response.status_code == 200
+    data = response.json()
+    assert data["auto_slide_markers_inserted"] == 1
+    assert f'source_id="{slide["source_id"]}"' in data["content_markdown"]
+    assert 'page="2"' in data["content_markdown"]
+
+    rendered = client.get(f'/sources/{slide["source_id"]}/slide-image?page=2')
+    assert rendered.status_code == 200
+    assert rendered.json()["data_url"].startswith("data:image/png;base64,")
+
+
+def test_unit_map_heading_auto_slide_insertion(tmp_path):
+    from app.db import save_source
+
+    pdf_path = tmp_path / "unit-slides.pdf"
+    _make_test_pdf(pdf_path, pages=4)
+    slide = save_source(
+        "Unit Slides",
+        "lecture_slides",
+        "unit-slides.pdf",
+        str(pdf_path),
+        "application/pdf",
+        pdf_path.stat().st_size,
+        "Unit slide deck text",
+        "pdf_extracted",
+        subject="UNIT_AUTO",
+    )
+    saved_map = client.post("/unit-maps", json={
+        "title": "Unit Auto Map",
+        "source_ids": [slide["source_id"]],
+        "map": {
+            "schemaVersion": "lecturenote.unitMap.v2",
+            "mappingBasis": "lecture_slides",
+            "units": [{
+                "unitId": "u001",
+                "unitNumber": "1",
+                "unitTitle": "Batch Reactor",
+                "lectureAnchor": {"sourceId": slide["source_id"], "slideRange": "slide 2-4"},
+                "confidence": "high",
+            }],
+            "unmapped": [],
+        },
+    })
+    assert saved_map.status_code == 200
+
+    response = client.post("/study/notes", json={
+        "title": "Batch Reactor Note",
+        "subject": "UNIT_AUTO",
+        "source_type": "generated_note",
+        "content_markdown": "# Batch Reactor\n\n반응기 설명",
+        "replace_latest": False,
+    })
+    assert response.status_code == 200
+    data = response.json()
+    assert data["auto_slide_markers_inserted"] == 1
+    assert f'source_id="{slide["source_id"]}"' in data["content_markdown"]
+    assert 'page="2"' in data["content_markdown"]

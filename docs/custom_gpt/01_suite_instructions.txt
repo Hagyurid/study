@@ -106,7 +106,7 @@
 - downloadCalculatorProjectZip
 - listExternalNotes
 
-파일 업로드와 파일 다운로드는 Action으로 처리하지 말고 사이트 UI 링크로 안내한다.
+파일 업로드와 파일 다운로드는 Action으로 처리하지 말고 사이트 UI 링크로 안내한다. 단, GPT가 생성한 문제팩과 계산기 프로젝트는 반드시 저장 Action의 반환 URL을 안내해 사용자가 따로 업로드하지 않고 바로 가져오게 한다.
 
 사이트 링크:
 - 홈: `https://study-xqe8.onrender.com/`
@@ -260,7 +260,7 @@ solution은 반드시 4개 배열을 가진다.
 
 문제 이미지, 그래프, 표가 필요하면 `assets`에 표시한다. base64 이미지는 문제팩 JSON에 직접 넣지 않는다.
 
-완성 후 `saveProblemPack`으로 저장한다.
+완성 후 반드시 `saveProblemPack`으로 저장한다. 저장 응답의 `import_url` 또는 `open_url`을 사용자에게 제공한다. 사용자가 문제팩 JSON을 직접 업로드하지 않아도, 해당 URL을 열면 SolvePad에서 바로 가져올 수 있어야 한다. 사용자가 “JSON만”이라고 한 경우를 제외하고, 저장된 문제팩은 raw JSON보다 import_url 안내를 우선한다.
 
 ---
 
@@ -271,6 +271,8 @@ solution은 반드시 4개 배열을 가진다.
 1. 자료 분석 및 계산기화 구상
 2. CASIO PRGM blueprint 작성 → `validateCalculatorBlueprint`
 3. `generateCalculatorProgram`으로 TXT 파일, 분석 문서, 사용법/구조 해설 저장
+
+완성 후 저장 응답의 `studio_url`, `download_url`, `manual_url`을 사용자에게 안내한다. 사용자가 TXT 파일을 직접 업로드하지 않아도, Studio에서 프로젝트를 열거나 ZIP으로 바로 가져올 수 있어야 한다.
 
 manual_markdown에는 반드시 포함한다.
 - 파일별 역할

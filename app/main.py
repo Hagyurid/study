@@ -1,6 +1,7 @@
 from io import BytesIO
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional, Tuple
+from functools import lru_cache
 from html import escape
 from urllib.parse import quote
 import shutil
@@ -41,7 +42,7 @@ from app.modules.prgm_engine import generate_txt_files, validate_blueprint
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "static"
 
-app = FastAPI(title="LectureNote Suite", version="2.2.12")
+app = FastAPI(title="LectureNote Suite", version="2.2.13")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"], allow_credentials=False)
 app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
 init_db()
@@ -275,13 +276,192 @@ def _code_block_html(code: str, lang: str = "") -> str:
         return "<div class='flow-box'>" + "".join(f"<div>{_inline_markdown_html(line)}</div>" for line in (code or "").splitlines() if line.strip()) + "</div>"
     return f"<pre class='code-block'><code>{escape(code or '')}</code></pre>"
 
+
+_SLIDE_MARKER_RE = re.compile(r'^\s*\[\[SLIDE_IMAGE\s+([\s\S]*?)\]\]\s*$')
+_SLIDE_ATTR_RE = re.compile(r'([A-Za-z_][\w-]*)=(?:"([^"]*)"|\'([^\']*)\'|([^\s]+))')
+
+
+def _parse_attrs(raw: str) -> Dict[str, str]:
+    attrs: Dict[str, str] = {}
+    for hit in _SLIDE_ATTR_RE.finditer(raw or ""):
+        attrs[hit.group(1)] = hit.group(2) if hit.group(2) is not None else (hit.group(3) if hit.group(3) is not None else hit.group(4) or "")
+    return attrs
+
+
+def _clean_marker_attr(value: str) -> str:
+    return re.sub(r"[\r\n\t]+", " ", str(value or "")).replace('"', "'").strip()
+
+
+def _slide_marker_line(source_id: str, page: int, caption: str = "", zoom: float = 2.0) -> str:
+    safe_source = _clean_marker_attr(source_id)
+    safe_caption = _clean_marker_attr(caption or f"{safe_source} p.{page}")
+    page = max(1, int(page or 1))
+    zoom = min(4.0, max(0.5, float(zoom or 2.0)))
+    return f'[[SLIDE_IMAGE source_id="{safe_source}" page="{page}" caption="{safe_caption}" zoom="{zoom:g}"]]'
+
+
+def _is_renderable_pdf_source(source: Dict[str, Any]) -> bool:
+    stored_path = str(source.get("stored_path") or "")
+    mime = str(source.get("mime_type") or "").lower()
+    original = str(source.get("original_name") or "").lower()
+    return (stored_path.lower().endswith(".pdf") or original.endswith(".pdf") or "pdf" in mime) and not stored_path.startswith("text://")
+
+
+def _default_slide_source(subject: str = "") -> Optional[Dict[str, Any]]:
+    candidates = [s for s in list_sources("lecture_slides", subject.strip()) if _is_renderable_pdf_source(s)]
+    if not candidates and subject.strip():
+        candidates = [s for s in list_sources("lecture_slides", "") if _is_renderable_pdf_source(s)]
+    return candidates[0] if candidates else None
+
+
+def _extract_first_slide_page(value: str) -> Optional[int]:
+    text = str(value or "")
+    patterns = [
+        r"(?i)(?:slide|slides|page|pages|p\.?|pp\.?)\s*[:#.]?\s*(\d{1,4})",
+        r"(?:슬라이드|페이지|쪽)\s*[:#.]?\s*(\d{1,4})",
+        r"^\s*(\d{1,4})\s*(?:[-~–]|부터|~)\s*\d{1,4}\s*$",
+        r"^\s*(\d{1,4})\s*$",
+    ]
+    for pattern in patterns:
+        m = re.search(pattern, text)
+        if m:
+            try:
+                return max(1, int(m.group(1)))
+            except Exception:
+                return None
+    return None
+
+
+def _has_nearby_slide_marker(lines: List[str], start: int, window: int = 5) -> bool:
+    end = min(len(lines), start + window + 1)
+    return any(_parse_slide_marker(lines[idx]) for idx in range(start, end))
+
+
+def _complete_or_convert_slide_placeholder(line: str, subject: str = "") -> Tuple[str, int]:
+    stripped = (line or "").strip()
+    default = _default_slide_source(subject)
+    default_id = default.get("id") if default else ""
+
+    m = re.match(r'^\s*\[\[(?:SLIDE_IMAGE|SLIDE)\s+([\s\S]*?)\]\]\s*$', line or "")
+    if m:
+        attrs = _parse_attrs(m.group(1))
+        source_id = attrs.get("source_id") or attrs.get("sourceId") or attrs.get("source") or default_id
+        page = _extract_first_slide_page(attrs.get("page") or attrs.get("p") or attrs.get("slide") or attrs.get("pageRange") or attrs.get("slideRange") or "")
+        if source_id and page:
+            caption = attrs.get("caption") or attrs.get("label") or f"{source_id} p.{page}"
+            try:
+                zoom = float(attrs.get("zoom") or 2.0)
+            except Exception:
+                zoom = 2.0
+            marker = _slide_marker_line(source_id, page, caption, zoom)
+            return marker, 1 if marker != line else 0
+        return line, 0
+
+    placeholder = re.match(r"^\s*\[(?:이미지\s*카드|슬라이드\s*삽입|SLIDE|Slide|slide|슬라이드|강의자료)\s*:?\s*([^\]]+?)\]\s*$", stripped)
+    brace = re.match(r"^\s*\{\{\s*(?:slide|슬라이드)\s*[:=]\s*(\d{1,4})(?:\s*,\s*([^}]+))?\s*\}\}\s*$", stripped, flags=re.I)
+    if placeholder or brace:
+        text = placeholder.group(1) if placeholder else ((brace.group(1) or "") + " " + (brace.group(2) or ""))
+        page = _extract_first_slide_page(text)
+        if default_id and page:
+            caption = text.strip() or f"{default_id} p.{page}"
+            return _slide_marker_line(default_id, page, caption, 2.0), 1
+    return line, 0
+
+
+def _normalize_for_match(value: str) -> str:
+    return re.sub(r"\s+", "", str(value or "").lower())
+
+
+def _unit_slide_candidates(subject: str = "") -> List[Dict[str, Any]]:
+    try:
+        units = get_workflow_options(subject.strip()).get("units", [])
+    except Exception:
+        return []
+    candidates: List[Dict[str, Any]] = []
+    for unit in units:
+        anchor = unit.get("lectureAnchor") or {}
+        source_id = anchor.get("sourceId") or ""
+        if not source_id:
+            continue
+        source = get_source(source_id) or {}
+        if not _is_renderable_pdf_source(source):
+            continue
+        page = _extract_first_slide_page(anchor.get("slideRange") or anchor.get("pageRange") or unit.get("lectureSlideRange") or "")
+        if not page:
+            continue
+        title = str(unit.get("unitTitle") or "").strip()
+        unit_number = str(unit.get("unitNumber") or "").strip()
+        if not title and not unit_number:
+            continue
+        candidates.append({
+            "source_id": source_id,
+            "page": page,
+            "unit_title": title,
+            "unit_number": unit_number,
+        })
+    candidates.sort(key=lambda item: len(item.get("unit_title") or ""), reverse=True)
+    return candidates
+
+
+def _heading_matches_unit(heading: str, unit: Dict[str, Any]) -> bool:
+    normalized_heading = _normalize_for_match(re.sub(r"^#{1,6}\s+", "", heading or ""))
+    title = _normalize_for_match(unit.get("unit_title") or "")
+    if title and title in normalized_heading:
+        return True
+    unit_number = str(unit.get("unit_number") or "").strip()
+    if unit_number and not title:
+        return bool(re.match(rf"^\s*#{{1,6}}\s*(?:단원\s*)?{re.escape(unit_number)}(?:[.장주차\s]|$)", heading or ""))
+    return False
+
+
+def _auto_insert_slide_markers(markdown: str, subject: str = "", enabled: bool = True) -> Tuple[str, int]:
+    """Add renderable slide markers only when there is a grounded source/page signal.
+
+    The function intentionally avoids free guessing. It completes explicit placeholders
+    and inserts unit-map anchors after matching headings when a PDF slide source/page is known.
+    """
+    if not enabled or not (markdown or "").strip():
+        return markdown or "", 0
+    lines = (markdown or "").replace("\r\n", "\n").split("\n")
+    converted = 0
+    for idx, line in enumerate(lines):
+        new_line, count = _complete_or_convert_slide_placeholder(line, subject)
+        lines[idx] = new_line
+        converted += count
+
+    candidates = _unit_slide_candidates(subject)
+    if not candidates:
+        return "\n".join(lines), converted
+
+    out: List[str] = []
+    inserted = converted
+    inserted_keys = set()
+    for idx, line in enumerate(lines):
+        out.append(line)
+        if not re.match(r"^#{1,3}\s+", line or ""):
+            continue
+        if inserted >= converted + 20:
+            continue
+        if _has_nearby_slide_marker(lines, idx + 1, window=6):
+            continue
+        match = next((candidate for candidate in candidates if _heading_matches_unit(line, candidate)), None)
+        if not match:
+            continue
+        key = (match["source_id"], match["page"])
+        if key in inserted_keys:
+            continue
+        caption_unit = match.get("unit_title") or match.get("unit_number") or "강의자료"
+        out.extend(["", _slide_marker_line(match["source_id"], match["page"], f"강의 슬라이드: {caption_unit} p.{match['page']}"), ""])
+        inserted_keys.add(key)
+        inserted += 1
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(out)), inserted
+
+
 def _parse_slide_marker(line: str) -> Optional[dict]:
-    match = re.match(r'^\s*\[\[SLIDE_IMAGE\s+([\s\S]*?)\]\]\s*$', line or "")
+    match = _SLIDE_MARKER_RE.match(line or "")
     if not match:
         return None
-    attrs = {}
-    for hit in re.finditer(r'([A-Za-z_][\w-]*)=(?:"([^"]*)"|\'([^\']*)\'|([^\s]+))', match.group(1)):
-        attrs[hit.group(1)] = hit.group(2) if hit.group(2) is not None else (hit.group(3) if hit.group(3) is not None else hit.group(4))
+    attrs = _parse_attrs(match.group(1))
     source_id = attrs.get("source_id") or attrs.get("sourceId") or attrs.get("source")
     if not source_id:
         return None
@@ -296,6 +476,30 @@ def _parse_slide_marker(line: str) -> Optional[dict]:
     caption = attrs.get("caption") or attrs.get("label") or f"{source_id} p.{page}"
     return {"source_id": source_id, "page": page, "zoom": zoom, "caption": caption}
 
+@lru_cache(maxsize=160)
+def _render_pdf_page_png_base64(stored_path: str, mtime_ns: int, page: int, zoom: float) -> Dict[str, Any]:
+    try:
+        import fitz  # PyMuPDF
+    except Exception:
+        raise HTTPException(status_code=500, detail="PDF slide rendering package is not installed. Add PyMuPDF to requirements.txt and redeploy.")
+    try:
+        doc = fitz.open(stored_path)
+        try:
+            if page > len(doc):
+                raise HTTPException(status_code=400, detail=f"Page out of range. This PDF has {len(doc)} pages.")
+            pdf_page = doc[page - 1]
+            matrix = fitz.Matrix(zoom, zoom)
+            pix = pdf_page.get_pixmap(matrix=matrix, alpha=False)
+            png = pix.tobytes("png")
+            encoded = base64.b64encode(png).decode("ascii")
+            return {"page_count": len(doc), "png_base64": encoded, "data_url": "data:image/png;base64," + encoded}
+        finally:
+            doc.close()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to render slide page: {exc}")
+
 
 def _render_slide_data(source_id: str, page: int = 1, zoom: float = 2.0) -> dict:
     source = get_source(source_id)
@@ -307,33 +511,19 @@ def _render_slide_data(source_id: str, page: int = 1, zoom: float = 2.0) -> dict
     suffix = stored_path.suffix.lower()
     if suffix != ".pdf" and "pdf" not in (source.get("mime_type") or "").lower():
         raise HTTPException(status_code=400, detail="Slide image rendering currently supports PDF lecture slides only")
-    try:
-        import fitz  # PyMuPDF
-    except Exception:
-        raise HTTPException(status_code=500, detail="PDF slide rendering package is not installed. Add PyMuPDF to requirements.txt and redeploy.")
-    try:
-        doc = fitz.open(str(stored_path))
-        if page > len(doc):
-            raise HTTPException(status_code=400, detail=f"Page out of range. This PDF has {len(doc)} pages.")
-        pdf_page = doc[page - 1]
-        matrix = fitz.Matrix(zoom, zoom)
-        pix = pdf_page.get_pixmap(matrix=matrix, alpha=False)
-        png = pix.tobytes("png")
-        data_url = "data:image/png;base64," + base64.b64encode(png).decode("ascii")
-        label = f"{source.get('title') or source.get('original_name') or source_id} p.{page}"
-        return {
-            "source_id": source_id,
-            "page": page,
-            "page_count": len(doc),
-            "label": label,
-            "data_url": data_url,
-            "png_base64": base64.b64encode(png).decode("ascii"),
-        }
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to render slide page: {exc}")
-
+    page = max(1, int(page or 1))
+    zoom = min(4.0, max(0.5, float(zoom or 2.0)))
+    stat = stored_path.stat()
+    rendered = _render_pdf_page_png_base64(str(stored_path), int(stat.st_mtime_ns), page, zoom)
+    label = f"{source.get('title') or source.get('original_name') or source_id} p.{page}"
+    return {
+        "source_id": source_id,
+        "page": page,
+        "page_count": rendered["page_count"],
+        "label": label,
+        "data_url": rendered["data_url"],
+        "png_base64": rendered["png_base64"],
+    }
 
 def _slide_marker_html(line: str) -> Optional[str]:
     marker = _parse_slide_marker(line)
@@ -550,9 +740,33 @@ def _markdown_to_docx_bytes(title: str, markdown: str) -> BytesIO:
     out.seek(0)
     return out
 
+
+
+def _prepare_note_markdown_for_save(markdown: str, subject: str = "", source_type: str = "generated_note", auto_slide_images: bool = True) -> Tuple[str, int]:
+    auto_enabled_types = {"generated_note", "exam_cram"}
+    if source_type not in auto_enabled_types:
+        return markdown or "", 0
+    return _auto_insert_slide_markers(markdown or "", subject, auto_slide_images)
+
+
+def _coerce_object_payload(value: Any, value_json: str = "", field_name: str = "payload") -> Dict[str, Any]:
+    if isinstance(value, dict) and value:
+        return value
+    if isinstance(value_json, str) and value_json.strip():
+        try:
+            parsed = json.loads(value_json)
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=f"{field_name}_json must be valid JSON object text: {exc}")
+        if not isinstance(parsed, dict):
+            raise HTTPException(status_code=422, detail=f"{field_name}_json must parse to a JSON object")
+        return parsed
+    if isinstance(value, dict):
+        return value
+    raise HTTPException(status_code=422, detail=f"{field_name} object or {field_name}_json is required")
+
 @app.get("/health")
 def health():
-    return {"ok": True, "service": "lecturenote-suite", "version": "2.2.12"}
+    return {"ok": True, "service": "lecturenote-suite", "version": "2.2.13"}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -899,7 +1113,10 @@ def export_project_note_source_endpoint(project_id: str, payload: dict = None):
 
 @app.post("/notes/versions", dependencies=[Depends(require_auth)])
 def save_note_version_endpoint(payload: NoteVersionSave):
-    return save_note_version(payload.title, payload.content_markdown, payload.series_id, payload.source_type, payload.change_summary, payload.based_on_version, payload.subject.strip(), payload.replace_latest)
+    subject = payload.subject.strip()
+    content, inserted = _prepare_note_markdown_for_save(payload.content_markdown, subject, payload.source_type, payload.auto_slide_images)
+    result = save_note_version(payload.title, content, payload.series_id, payload.source_type, payload.change_summary, payload.based_on_version, subject, payload.replace_latest)
+    return {**result, "content_markdown": content, "auto_slide_markers_inserted": inserted}
 
 
 @app.get("/notes/versions", dependencies=[Depends(require_auth)])
@@ -965,30 +1182,36 @@ def list_study_notes_endpoint(subject: str = Query(default=""), source_type: str
 @app.post("/study/notes", dependencies=[Depends(require_auth)])
 def save_study_note_endpoint(payload: StudyNoteSave):
     source_type = payload.source_type if payload.source_type in {"generated_note", "external_note", "exam_cram", "calculator_manual", "note_example"} else "generated_note"
-    return save_note_version(
+    subject = payload.subject.strip()
+    content, inserted = _prepare_note_markdown_for_save(payload.content_markdown, subject, source_type, payload.auto_slide_images)
+    result = save_note_version(
         payload.title,
-        payload.content_markdown,
+        content,
         payload.series_id,
         source_type,
         payload.change_summary,
         None,
-        payload.subject.strip(),
+        subject,
         payload.replace_latest,
     )
+    return {**result, "content_markdown": content, "auto_slide_markers_inserted": inserted}
 
 
 @app.post("/exam-cram", dependencies=[Depends(require_auth)])
 def save_exam_cram_endpoint(payload: ExamCramSave):
-    return save_note_version(
+    subject = payload.subject.strip()
+    content, inserted = _prepare_note_markdown_for_save(payload.content_markdown, subject, "exam_cram", payload.auto_slide_images)
+    result = save_note_version(
         payload.title,
-        payload.content_markdown,
+        content,
         payload.series_id,
         "exam_cram",
         payload.change_summary,
         None,
-        payload.subject.strip(),
+        subject,
         payload.replace_latest,
     )
+    return {**result, "content_markdown": content, "auto_slide_markers_inserted": inserted}
 
 
 @app.get("/study/notes/{source_id}", dependencies=[Depends(require_auth)])
@@ -1001,10 +1224,20 @@ def get_study_note_endpoint(source_id: str):
 
 @app.put("/study/notes/{source_id}", dependencies=[Depends(require_auth)])
 def update_study_note_endpoint(source_id: str, payload: StudyNoteUpdate):
-    result = update_source_markdown(source_id, payload.content_markdown, payload.title, payload.change_summary)
+    current = get_source_markdown(source_id)
+    if not current:
+        raise HTTPException(status_code=404, detail="Study note not found")
+    source = current.get("source") or {}
+    content, inserted = _prepare_note_markdown_for_save(
+        payload.content_markdown,
+        str(source.get("subject") or ""),
+        str(source.get("source_type") or "generated_note"),
+        payload.auto_slide_images,
+    )
+    result = update_source_markdown(source_id, content, payload.title, payload.change_summary)
     if not result:
         raise HTTPException(status_code=404, detail="Study note not found")
-    return result
+    return {**result, "content_markdown": content, "auto_slide_markers_inserted": inserted}
 
 
 
@@ -1070,8 +1303,17 @@ def get_unit_map_endpoint(unit_map_id: str):
 
 @app.post("/problem-packs", dependencies=[Depends(require_auth)])
 def save_problem_pack_endpoint(payload: ProblemPackSave):
-    saved = save_problem_pack(payload.title, payload.pack)
-    return {**saved, "import_url": f"{PUBLIC_BASE_URL}/static/solvepad/index.html?server={PUBLIC_BASE_URL}&importToken={saved['token']}"}
+    pack = _coerce_object_payload(payload.pack, payload.pack_json, "pack")
+    saved = save_problem_pack(payload.title, pack)
+    import_url = f"{PUBLIC_BASE_URL}/static/solvepad/index.html?server={PUBLIC_BASE_URL}&importToken={saved['token']}"
+    return {
+        **saved,
+        "import_url": import_url,
+        "open_url": import_url,
+        "solvepad_url": import_url,
+        "program": "SolvePad",
+        "message": "Saved problem pack. Open open_url to auto-import and open it in SolvePad without manual upload.",
+    }
 
 
 @app.get("/packs/{token}")
@@ -1132,16 +1374,18 @@ def download_calculator_project_zip(project_id: str):
 
 @app.post("/calculator/validate", dependencies=[Depends(require_auth)])
 def validate_calculator(payload: CalculatorBlueprintSave):
-    return validate_blueprint(payload.blueprint).as_dict()
+    blueprint = _coerce_object_payload(payload.blueprint, payload.blueprint_json, "blueprint")
+    return validate_blueprint(blueprint).as_dict()
 
 
 @app.post("/calculator/generate", dependencies=[Depends(require_auth)])
 def generate_calculator(payload: CalculatorBlueprintSave):
-    validation = validate_blueprint(payload.blueprint).as_dict()
-    generated = generate_txt_files(payload.blueprint).as_dict()
+    blueprint = _coerce_object_payload(payload.blueprint, payload.blueprint_json, "blueprint")
+    validation = validate_blueprint(blueprint).as_dict()
+    generated = generate_txt_files(blueprint).as_dict()
     saved = save_calculator_blueprint(
         payload.title,
-        payload.blueprint,
+        blueprint,
         validation,
         generated,
         payload.metadata,
@@ -1150,18 +1394,25 @@ def generate_calculator(payload: CalculatorBlueprintSave):
         payload.replace_calculator_project_id,
     )
     project_id = saved["calculator_project_id"]
+    studio_url = f"{PUBLIC_BASE_URL}/static/casio/index.html?projectId={project_id}"
     return {
         **saved,
         "validation": validation,
         "generated": generated,
         "manual_url": f"{PUBLIC_BASE_URL}/calculator/projects/{project_id}/manual",
-        "studio_url": f"{PUBLIC_BASE_URL}/static/casio/index.html?projectId={project_id}",
+        "studio_url": studio_url,
+        "open_url": studio_url,
+        "casio_url": studio_url,
+        "download_url": f"{PUBLIC_BASE_URL}/calculator/projects/{project_id}/download.zip",
+        "program": "CASIO PRGM Studio",
+        "message": "Saved calculator project. Open open_url to view generated TXT files, analysis, and manual in CASIO PRGM Studio without manual upload.",
     }
 
 
 @app.post("/calculator/generate.zip", dependencies=[Depends(require_auth)])
 def generate_calculator_zip(payload: CalculatorBlueprintSave):
-    generated = generate_txt_files(payload.blueprint).as_dict()
+    blueprint = _coerce_object_payload(payload.blueprint, payload.blueprint_json, "blueprint")
+    generated = generate_txt_files(blueprint).as_dict()
     mem = BytesIO()
     with zipfile.ZipFile(mem, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for file_info in generated.get("files", []):
