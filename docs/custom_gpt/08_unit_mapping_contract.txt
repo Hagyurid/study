@@ -46,19 +46,15 @@ saveUnitMap Action payload 계약:
 {
   "title": "과목명 단원 매핑",
   "source_ids": ["src-..."],
-  "unit_map": {
-    "schemaVersion": "lecturenote.unitMap.v2",
-    "mappingBasis": "lecture_slides",
-    "units": [],
-    "unmapped": [],
-    "extensionOnly": []
-  },
+  "unit_map_json": "{\"schemaVersion\":\"lecturenote.unitMap.v2\",\"mappingBasis\":\"lecture_slides\",\"units\":[],\"unmapped\":[],\"extensionOnly\":[]}",
   "created_by": "gpt"
 }
 
 주의:
 - GPT Actions에서는 `map` 필드를 사용하지 않는다.
-- 단원 매핑 본문은 반드시 `unit_map`에 넣는다.
+- GPT Actions에서는 `unit_map` 자유 object 필드도 사용하지 않는다.
+- 단원 매핑 본문은 반드시 `unit_map_json` 문자열에 넣는다.
+- `unit_map_json`은 JSON.parse 가능한 객체 문자열이어야 한다.
 
 Unit Map JSON 계약:
 

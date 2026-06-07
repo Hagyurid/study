@@ -126,7 +126,7 @@ paths:
   /unit-maps:
     post:
       operationId: saveUnitMap
-      summary: Save GPT-generated unit map.
+      summary: Save GPT-generated unit map. Use unit_map_json as JSON object text for reliable Custom GPT Actions transmission.
       requestBody:
         required: true
         content:
@@ -135,7 +135,7 @@ paths:
               type: object
               required:
                 - title
-                - unit_map
+                - unit_map_json
               properties:
                 title:
                   type: string
@@ -143,8 +143,9 @@ paths:
                   type: array
                   items:
                     type: string
-                unit_map:
-                  type: object
+                unit_map_json:
+                  type: string
+                  description: JSON string containing the unit map object. Must parse to an object with schemaVersion, mappingBasis, units, unmapped, and extensionOnly.
                 created_by:
                   type: string
       responses:
