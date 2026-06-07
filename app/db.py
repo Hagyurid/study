@@ -359,6 +359,36 @@ def get_source(source_id: str) -> Optional[Dict[str, Any]]:
     return dict(row) if row else None
 
 
+def update_source_names(source_id: str, title: str = "", original_name: str = "", target: str = "title") -> Dict[str, Any]:
+    source = get_source(source_id)
+    if not source:
+        return {}
+    new_title = (title or "").strip()
+    new_original = (original_name or "").strip()
+    target = (target or "title").strip()
+    updates = []
+    params: List[Any] = []
+    if target in {"title", "both"} and new_title:
+        updates.append("title=?")
+        params.append(new_title)
+    if target in {"original_name", "both"} and new_original:
+        updates.append("original_name=?")
+        params.append(new_original)
+    if not updates:
+        return {"ok": False, "source_id": source_id, "error": "no update fields"}
+    params.append(source_id)
+    with conn() as db:
+        db.execute(f"UPDATE sources SET {', '.join(updates)} WHERE id=?", params)
+    updated = get_source(source_id) or {}
+    return {
+        "ok": True,
+        "source_id": source_id,
+        "old_title": source.get("title", ""),
+        "new_title": updated.get("title", ""),
+        "old_original_name": source.get("original_name", ""),
+        "new_original_name": updated.get("original_name", ""),
+    }
+
 def search_sources(query: str, source_types: Optional[List[str]] = None, limit: int = 5, subject: str = "") -> List[Dict[str, Any]]:
     """Return the most relevant chunks without loading the entire chunk table when a query is provided."""
     terms = [term.strip().lower() for term in (query or "").split() if term.strip()]

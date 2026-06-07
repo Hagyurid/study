@@ -8,6 +8,7 @@ import tempfile
 import zipfile
 import base64
 import re
+import json
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -25,7 +26,7 @@ from app.db import (
     list_calculator_blueprints, list_workflow_checkpoints, list_workflow_plans, list_workflow_runs,
     save_calculator_blueprint, save_note_version, save_outline, save_problem_pack,
     save_project_items, save_section, save_source, save_text_source,
-    save_transcript_revision, save_unit_map, save_workflow_checkpoint, update_source_markdown,
+    save_transcript_revision, save_unit_map, save_workflow_checkpoint, update_source_markdown, update_source_names,
     search_sources, get_next_workflow_step,
 )
 from app.models import (
@@ -40,7 +41,7 @@ from app.modules.prgm_engine import generate_txt_files, validate_blueprint
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "static"
 
-app = FastAPI(title="LectureNote Suite", version="2.2.9")
+app = FastAPI(title="LectureNote Suite", version="2.2.11")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"], allow_credentials=False)
 app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
 init_db()
@@ -70,6 +71,10 @@ def _options(selected: str = "lecture_slides") -> str:
     return "\n".join(f'<option value="{v}" {"selected" if v == selected else ""}>{label}</option>' for v, label in SOURCE_TYPES)
 
 
+def _source_type_label(value: str) -> str:
+    labels = dict(SOURCE_TYPES)
+    return labels.get(value or "", value or "미지정")
+
 EXAM_SCOPE_LABELS = {
     "unknown": "시험범위 확인 안 됨",
     "in_scope": "현재 시험범위 해당",
@@ -96,7 +101,7 @@ def _exam_meta_text(exam_scope_status: str, exam_usage_mode: str, exam_range_not
 
 def _page(title: str, body: str) -> HTMLResponse:
     return HTMLResponse(f"""<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>{escape(title)}</title><style>
-:root{{--bg:#f6f7fb;--card:#fff;--text:#171923;--muted:#667085;--line:#e4e7ec;--accent:#4f46e5;--accent2:#eef2ff;--danger:#d92d20;--ok:#047857}}*{{box-sizing:border-box}}body{{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans KR',Arial,sans-serif;background:linear-gradient(180deg,#f8f9ff 0%,#f6f7fb 42%,#f3f4f8 100%);color:var(--text)}}.wrap{{max-width:1120px;margin:0 auto;padding:32px 20px 56px}}.top{{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:24px}}h1{{font-size:30px;line-height:1.2;margin:0 0 8px;letter-spacing:-.035em}}h2{{margin:0 0 8px;font-size:20px;letter-spacing:-.02em}}p{{margin:0;color:var(--muted);line-height:1.6}}.nav,.actions{{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}}a.btn,button,.btn{{border:0;border-radius:12px;padding:10px 14px;background:var(--accent);color:#fff;text-decoration:none;font-weight:750;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px}}a.btn.secondary,.btn.secondary{{background:var(--accent2);color:var(--accent)}}button.danger{{background:var(--danger)}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}}.card{{background:rgba(255,255,255,.92);border:1px solid var(--line);border-radius:22px;padding:22px;box-shadow:0 12px 34px rgba(16,24,40,.06);backdrop-filter:blur(8px)}}label{{display:block;font-weight:760;margin:16px 0 8px}}input,select{{width:100%;border:1px solid var(--line);border-radius:13px;padding:12px 13px;font-size:15px;background:white;outline:none}}input:focus,select:focus{{border-color:#818cf8;box-shadow:0 0 0 4px rgba(79,70,229,.12)}}input[type=file]{{padding:16px;border-style:dashed;background:#fbfcff}}input[type=checkbox]{{width:auto;accent-color:var(--accent)}}.hint{{font-size:13px;color:var(--muted);margin-top:6px}}.keybox{{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px}}.keybox label{{margin:0;font-weight:600;color:var(--muted);font-size:13px;display:flex;gap:6px;align-items:center}}.keybox input[type=checkbox]{{width:auto}}.key-status{{font-size:13px;color:var(--ok);font-weight:700}}table{{width:100%;border-collapse:collapse;background:white;border-radius:16px;overflow:hidden}}th,td{{border-bottom:1px solid var(--line);padding:12px;text-align:left;vertical-align:top;font-size:14px}}th{{background:#f9fafb;color:#344054;font-size:13px}}code{{background:#f2f4f7;padding:2px 6px;border-radius:6px}}.pill{{display:inline-block;padding:4px 8px;border-radius:999px;background:var(--accent2);color:var(--accent);font-size:12px;font-weight:800}}.muted{{color:var(--muted)}}.kbd{{border:1px solid var(--line);background:#fff;border-radius:8px;padding:2px 7px;font-size:12px;color:#344054}}@media(max-width:640px){{.top{{display:block}}.wrap{{padding:22px 14px}}h1{{font-size:25px}}}}</style></head><body><main class="wrap">{body}</main><script>
+:root{{--bg:#f6f7fb;--card:#fff;--text:#171923;--muted:#667085;--line:#e4e7ec;--accent:#4f46e5;--accent2:#eef2ff;--danger:#d92d20;--ok:#047857}}*{{box-sizing:border-box}}body{{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans KR',Arial,sans-serif;background:linear-gradient(180deg,#f8f9ff 0%,#f6f7fb 42%,#f3f4f8 100%);color:var(--text)}}.wrap{{max-width:1120px;margin:0 auto;padding:32px 20px 56px}}.top{{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:24px}}h1{{font-size:30px;line-height:1.2;margin:0 0 8px;letter-spacing:-.035em}}h2{{margin:0 0 8px;font-size:20px;letter-spacing:-.02em}}p{{margin:0;color:var(--muted);line-height:1.6}}.nav,.actions{{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}}a.btn,button,.btn{{border:0;border-radius:12px;padding:10px 14px;background:var(--accent);color:#fff;text-decoration:none;font-weight:750;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px}}a.btn.secondary,.btn.secondary{{background:var(--accent2);color:var(--accent)}}button.danger{{background:var(--danger)}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}}.card{{background:rgba(255,255,255,.92);border:1px solid var(--line);border-radius:22px;padding:22px;box-shadow:0 12px 34px rgba(16,24,40,.06);backdrop-filter:blur(8px)}}label{{display:block;font-weight:760;margin:16px 0 8px}}input,select{{width:100%;border:1px solid var(--line);border-radius:13px;padding:12px 13px;font-size:15px;background:white;outline:none}}input:focus,select:focus{{border-color:#818cf8;box-shadow:0 0 0 4px rgba(79,70,229,.12)}}input[type=file]{{padding:16px;border-style:dashed;background:#fbfcff}}input[type=checkbox]{{width:auto;accent-color:var(--accent)}}.hint{{font-size:13px;color:var(--muted);margin-top:6px}}.keybox{{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px}}.keybox label{{margin:0;font-weight:600;color:var(--muted);font-size:13px;display:flex;gap:6px;align-items:center}}.keybox input[type=checkbox]{{width:auto}}.key-status{{font-size:13px;color:var(--ok);font-weight:700}}table{{width:100%;border-collapse:collapse;background:white;border-radius:16px;overflow:hidden}}th,td{{border-bottom:1px solid var(--line);padding:12px;text-align:left;vertical-align:top;font-size:14px}}th{{background:#f9fafb;color:#344054;font-size:13px}}code{{background:#f2f4f7;padding:2px 6px;border-radius:6px}}.pill{{display:inline-block;padding:4px 8px;border-radius:999px;background:var(--accent2);color:var(--accent);font-size:12px;font-weight:800;white-space:nowrap}}.subject-pill{{min-width:52px;text-align:center}}.type-label{{white-space:nowrap;color:#344054;font-weight:700}}.renamebar{{display:grid;grid-template-columns:minmax(220px,1fr) 170px auto auto;gap:10px;align-items:end;width:100%}}@media(max-width:760px){{.renamebar{{grid-template-columns:1fr}}}}.muted{{color:var(--muted)}}.kbd{{border:1px solid var(--line);background:#fff;border-radius:8px;padding:2px 7px;font-size:12px;color:#344054}}@media(max-width:640px){{.top{{display:block}}.wrap{{padding:22px 14px}}h1{{font-size:25px}}}}</style></head><body><main class="wrap">{body}</main><script>
 (function(){{
   const KEY = "lecturenote_action_key";
   const SUBJECT = "lecturenote_subject";
@@ -447,7 +452,7 @@ def _markdown_to_docx_bytes(title: str, markdown: str) -> BytesIO:
 
 @app.get("/health")
 def health():
-    return {"ok": True, "service": "lecturenote-suite", "version": "2.2.9"}
+    return {"ok": True, "service": "lecturenote-suite", "version": "2.2.11"}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -601,23 +606,25 @@ def manage_sources_page(subject: str = Query(default=""), source_type: str = Que
     for s in list_sources(source_type=source_type, subject=subject):
         raw_sid = s.get("id", "")
         sid = escape(raw_sid)
+        source_label = escape(_source_type_label(s.get("source_type", "")))
+        subject_label = escape(s.get("subject", "") or "미지정")
         rows.append(
             "<tr>"
             f"<td><input type='checkbox' name='source_ids' value='{sid}' data-source-check aria-label='자료 선택'/></td>"
-            f"<td><span class='pill'>{escape(s.get('subject','') or '미지정')}</span></td>"
-            f"<td>{escape(s.get('source_type',''))}</td>"
+            f"<td><span class='pill subject-pill'>{subject_label}</span></td>"
+            f"<td><span class='type-label'>{source_label}</span><div class='hint'>{escape(s.get('source_type',''))}</div></td>"
             f"<td>{escape(s.get('title',''))}<div class='hint'><code>{sid}</code></div></td>"
             f"<td>{escape(s.get('original_name',''))}</td>"
             f"<td>{escape(s.get('created_at',''))}</td>"
-            f"<td><button class='danger' type='submit' name='source_ids' value='{sid}' onclick=\"return confirm('이 자료를 삭제할까요?');\">삭제</button></td>"
+            f"<td><button class='danger' type='submit' name='source_ids' value='{sid}' data-action='delete' formaction='/sources/delete-batch' onclick=\"return confirm('이 자료를 삭제할까요?');\">삭제</button></td>"
             "</tr>"
         )
     table_rows = "\n".join(rows) or "<tr><td colspan='7' class='muted'>업로드된 자료가 없습니다.</td></tr>"
     return _page(
         "업로드 파일 관리",
-        f"""<section class='top'><div><h1>업로드 파일 관리</h1><p>업로드한 자료를 과목과 유형별로 필터링하고, 여러 자료를 선택해 한 번에 삭제할 수 있습니다.</p></div><div class='nav'><a class='btn secondary' href='/upload'>자료 업로드</a><a class='btn secondary' href='/'>홈</a></div></section>
+        f"""<section class='top'><div><h1>업로드 파일 관리</h1><p>업로드한 자료를 과목과 유형별로 필터링하고, 여러 자료를 선택해 한 번에 삭제하거나 표시 파일명을 변경할 수 있습니다.</p></div><div class='nav'><a class='btn secondary' href='/upload'>자료 업로드</a><a class='btn secondary' href='/'>홈</a></div></section>
 <section class='card'><form method='get' action='/sources/manage'><label>과목 필터</label><input name='subject' value='{escape(subject)}' placeholder='예: CRE'/><label>유형 필터</label><select name='source_type'><option value='' {'selected' if not source_type else ''}>전체 유형</option>{_options(source_type)}</select><label>액션 키</label><input name='action_key' type='password' value='{escape(action_key)}' placeholder='처음 한 번 입력하면 자동 저장'/><div class='keybox'><span class='key-status' data-key-status></span><button class='btn secondary' type='button' data-clear-key>저장된 키 지우기</button></div><div class='actions'><button type='submit'>적용</button><a class='btn secondary' href='/status?subject={escape(subject)}'>상태판/매핑</a><a class='btn secondary' href='/sources/manage?action_key={escape(action_key)}'>필터 초기화</a></div></form></section>
-<section class='card' style='margin-top:16px;overflow:auto'><form action='/sources/delete-batch' method='post' onsubmit="const n=document.querySelectorAll('[data-source-check]:checked').length; if(!n && !event.submitter?.value){{alert('삭제할 자료를 선택하세요.'); return false;}} return confirm((n || 1)+'개 자료를 삭제할까요?');"><input type='hidden' name='action_key' value='{escape(action_key)}'/><input type='hidden' name='subject' value='{escape(subject)}'/><input type='hidden' name='source_type' value='{escape(source_type)}'/><div class='actions' style='justify-content:space-between;align-items:center;margin-top:0;margin-bottom:12px'><label style='margin:0;display:flex;gap:8px;align-items:center'><input type='checkbox' id='selectAllSources' onclick="document.querySelectorAll('[data-source-check]').forEach(cb=>cb.checked=this.checked)"/> 전체 선택</label><button class='danger' type='submit'>선택 삭제</button></div><table><thead><tr><th>선택</th><th>과목</th><th>유형</th><th>제목/source_id</th><th>파일</th><th>생성일</th><th>작업</th></tr></thead><tbody>{table_rows}</tbody></table></form></section>""",
+<section class='card' style='margin-top:16px;overflow:auto'><form method='post' onsubmit="const checked=document.querySelectorAll('[data-source-check]:checked').length; const submitter=event.submitter; if(!checked && !submitter?.value){{alert('대상 자료를 선택하세요.'); return false;}} if(submitter?.dataset.action==='rename'){{const name=this.querySelector('[name=new_name]').value.trim(); if(!name){{alert('새 표시 파일명을 입력하세요.'); return false;}} return confirm((checked || 1)+'개 자료의 표시 파일명을 변경할까요?');}} return confirm((checked || 1)+'개 자료를 삭제할까요?');"><input type='hidden' name='action_key' value='{escape(action_key)}'/><input type='hidden' name='subject' value='{escape(subject)}'/><input type='hidden' name='source_type' value='{escape(source_type)}'/><div class='actions' style='justify-content:space-between;align-items:center;margin-top:0;margin-bottom:12px'><label style='margin:0;display:flex;gap:8px;align-items:center'><input type='checkbox' id='selectAllSources' onclick="document.querySelectorAll('[data-source-check]').forEach(cb=>cb.checked=this.checked)"/> 전체 선택</label><div class='renamebar'><div><label style='margin:0 0 6px'>선택 파일명 변경</label><input name='new_name' placeholder='새 표시 파일명. 여러 개면 {{n}} 사용 가능'/><div class='hint'>예: 전재설 Week{{n}} 강의자료</div></div><div><label style='margin:0 0 6px'>변경 대상</label><select name='rename_target'><option value='title'>제목만</option><option value='original_name'>파일명 표시만</option><option value='both'>제목+파일명 표시</option></select></div><button class='btn secondary' type='submit' data-action='rename' formaction='/sources/rename-batch'>선택 파일명 변경</button><button class='danger' type='submit' data-action='delete' formaction='/sources/delete-batch'>선택 삭제</button></div></div><table><thead><tr><th>선택</th><th>과목</th><th>유형</th><th>제목/source_id</th><th>파일</th><th>생성일</th><th>작업</th></tr></thead><tbody>{table_rows}</tbody></table></form></section>""",
     )
 
 
@@ -824,14 +831,22 @@ def save_unit_map_endpoint(payload: dict):
     map_json = (
         payload.get("unit_map")
         or payload.get("unitMap")
-        or payload.get("unit_map_json")
         or payload.get("map")
         or payload.get("map_json")
         or payload.get("mapJson")
         or payload.get("mapping")
     )
+    # Custom GPT Actions can be unreliable with free-form object inputs.
+    # Accept JSON text fields as the stable fallback format.
+    if map_json is None:
+        map_json = payload.get("unit_map_json") or payload.get("unitMapJson") or payload.get("mapping_json")
+    if isinstance(map_json, str):
+        try:
+            map_json = json.loads(map_json)
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=f"unit_map_json must be valid JSON object text: {exc}")
     if not isinstance(map_json, dict):
-        raise HTTPException(status_code=422, detail="Unit map payload must include object field: unit_map")
+        raise HTTPException(status_code=422, detail="Unit map payload must include unit_map object or unit_map_json JSON object string")
     created_by = str(payload.get("created_by") or payload.get("createdBy") or "gpt")
     return save_unit_map(title, source_ids, map_json, created_by)
 
