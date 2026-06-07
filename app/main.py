@@ -41,7 +41,7 @@ from app.modules.prgm_engine import generate_txt_files, validate_blueprint
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "static"
 
-app = FastAPI(title="LectureNote Suite", version="2.2.11")
+app = FastAPI(title="LectureNote Suite", version="2.2.12")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"], allow_credentials=False)
 app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
 init_db()
@@ -275,6 +275,88 @@ def _code_block_html(code: str, lang: str = "") -> str:
         return "<div class='flow-box'>" + "".join(f"<div>{_inline_markdown_html(line)}</div>" for line in (code or "").splitlines() if line.strip()) + "</div>"
     return f"<pre class='code-block'><code>{escape(code or '')}</code></pre>"
 
+def _parse_slide_marker(line: str) -> Optional[dict]:
+    match = re.match(r'^\s*\[\[SLIDE_IMAGE\s+([\s\S]*?)\]\]\s*$', line or "")
+    if not match:
+        return None
+    attrs = {}
+    for hit in re.finditer(r'([A-Za-z_][\w-]*)=(?:"([^"]*)"|\'([^\']*)\'|([^\s]+))', match.group(1)):
+        attrs[hit.group(1)] = hit.group(2) if hit.group(2) is not None else (hit.group(3) if hit.group(3) is not None else hit.group(4))
+    source_id = attrs.get("source_id") or attrs.get("sourceId") or attrs.get("source")
+    if not source_id:
+        return None
+    try:
+        page = max(1, int(attrs.get("page") or attrs.get("p") or 1))
+    except Exception:
+        page = 1
+    try:
+        zoom = min(4.0, max(0.5, float(attrs.get("zoom") or 2.0)))
+    except Exception:
+        zoom = 2.0
+    caption = attrs.get("caption") or attrs.get("label") or f"{source_id} p.{page}"
+    return {"source_id": source_id, "page": page, "zoom": zoom, "caption": caption}
+
+
+def _render_slide_data(source_id: str, page: int = 1, zoom: float = 2.0) -> dict:
+    source = get_source(source_id)
+    if not source:
+        raise HTTPException(status_code=404, detail="Source not found")
+    stored_path = Path(source.get("stored_path") or "")
+    if not stored_path.exists():
+        raise HTTPException(status_code=404, detail="Stored file not found")
+    suffix = stored_path.suffix.lower()
+    if suffix != ".pdf" and "pdf" not in (source.get("mime_type") or "").lower():
+        raise HTTPException(status_code=400, detail="Slide image rendering currently supports PDF lecture slides only")
+    try:
+        import fitz  # PyMuPDF
+    except Exception:
+        raise HTTPException(status_code=500, detail="PDF slide rendering package is not installed. Add PyMuPDF to requirements.txt and redeploy.")
+    try:
+        doc = fitz.open(str(stored_path))
+        if page > len(doc):
+            raise HTTPException(status_code=400, detail=f"Page out of range. This PDF has {len(doc)} pages.")
+        pdf_page = doc[page - 1]
+        matrix = fitz.Matrix(zoom, zoom)
+        pix = pdf_page.get_pixmap(matrix=matrix, alpha=False)
+        png = pix.tobytes("png")
+        data_url = "data:image/png;base64," + base64.b64encode(png).decode("ascii")
+        label = f"{source.get('title') or source.get('original_name') or source_id} p.{page}"
+        return {
+            "source_id": source_id,
+            "page": page,
+            "page_count": len(doc),
+            "label": label,
+            "data_url": data_url,
+            "png_base64": base64.b64encode(png).decode("ascii"),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to render slide page: {exc}")
+
+
+def _slide_marker_html(line: str) -> Optional[str]:
+    marker = _parse_slide_marker(line)
+    if not marker:
+        return None
+    caption = marker.get("caption") or f"{marker['source_id']} p.{marker['page']}"
+    try:
+        data = _render_slide_data(marker["source_id"], marker["page"], marker["zoom"])
+        return (
+            "<figure class='image-card slide-card'>"
+            f"<img alt='{escape(caption)}' src='{escape(data['data_url'])}'/>"
+            f"<figcaption>{escape(caption)}</figcaption>"
+            "</figure>"
+        )
+    except Exception as exc:
+        return (
+            "<figure class='image-card slide-card slide-error'>"
+            f"<div class='flow-box'>슬라이드 삽입 실패: {escape(str(exc))}</div>"
+            f"<figcaption>{escape(caption)}</figcaption>"
+            "</figure>"
+        )
+
+
 
 def _simple_markdown_html(markdown: str) -> str:
     lines = (markdown or "").replace("\r\n", "\n").split("\n")
@@ -296,6 +378,11 @@ def _simple_markdown_html(markdown: str) -> str:
             block = _code_block_html("\n".join(code), lang)
             if block:
                 blocks.append(block)
+            continue
+        slide_html = _slide_marker_html(line)
+        if slide_html:
+            blocks.append(slide_html)
+            i += 1
             continue
         img = re.match(r"^!\[([^\]]*)\]\((.+)\)$", line.strip())
         if img:
@@ -325,7 +412,7 @@ def _simple_markdown_html(markdown: str) -> str:
             continue
         para = [line]
         i += 1
-        while i < len(lines) and lines[i].strip() and not re.match(r"^(#{1,6})\s+", lines[i]) and not re.match(r"^[-*]\s+", lines[i]) and not lines[i].startswith("```") and not re.match(r"^!\[", lines[i].strip()) and not (_md_is_table_row(lines[i]) and i + 1 < len(lines) and _md_is_table_separator(lines[i + 1])):
+        while i < len(lines) and lines[i].strip() and not re.match(r"^(#{1,6})\s+", lines[i]) and not re.match(r"^[-*]\s+", lines[i]) and not lines[i].startswith("```") and not re.match(r"^!\[", lines[i].strip()) and not _parse_slide_marker(lines[i]) and not (_md_is_table_row(lines[i]) and i + 1 < len(lines) and _md_is_table_separator(lines[i + 1])):
             para.append(lines[i])
             i += 1
         blocks.append("<p>" + _inline_markdown_html("\n".join(para)).replace("\n", "<br/>") + "</p>")
@@ -407,6 +494,19 @@ def _markdown_to_docx_bytes(title: str, markdown: str) -> BytesIO:
             doc.add_paragraph("")
             i += 1
             continue
+        slide_marker = _parse_slide_marker(line)
+        if slide_marker:
+            try:
+                data = _render_slide_data(slide_marker["source_id"], slide_marker["page"], slide_marker["zoom"])
+                bio = BytesIO(base64.b64decode(data["png_base64"], validate=False))
+                doc.add_picture(bio, width=Inches(5.8))
+                caption = _clean_markdown_inline_for_docx(slide_marker.get("caption") or data.get("label") or "슬라이드")
+                if caption:
+                    doc.add_paragraph(caption)
+            except Exception as exc:
+                doc.add_paragraph(f"[슬라이드 삽입 실패: {exc}]")
+            i += 1
+            continue
         img = image_pattern.search(line)
         if img:
             try:
@@ -452,7 +552,7 @@ def _markdown_to_docx_bytes(title: str, markdown: str) -> BytesIO:
 
 @app.get("/health")
 def health():
-    return {"ok": True, "service": "lecturenote-suite", "version": "2.2.11"}
+    return {"ok": True, "service": "lecturenote-suite", "version": "2.2.12"}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -910,41 +1010,16 @@ def update_study_note_endpoint(source_id: str, payload: StudyNoteUpdate):
 
 @app.get("/sources/{source_id}/slide-image", dependencies=[Depends(require_auth)])
 def render_source_slide_image(source_id: str, page: int = Query(default=1, ge=1), zoom: float = Query(default=2.0, ge=0.5, le=4.0)):
-    source = get_source(source_id)
-    if not source:
-        raise HTTPException(status_code=404, detail="Source not found")
-    stored_path = Path(source.get("stored_path") or "")
-    if not stored_path.exists():
-        raise HTTPException(status_code=404, detail="Stored file not found")
-    suffix = stored_path.suffix.lower()
-    if suffix != ".pdf" and "pdf" not in (source.get("mime_type") or "").lower():
-        raise HTTPException(status_code=400, detail="Slide image rendering currently supports PDF lecture slides only")
-    try:
-        import fitz  # PyMuPDF
-    except Exception:
-        raise HTTPException(status_code=500, detail="PDF slide rendering package is not installed. Add PyMuPDF to requirements.txt and redeploy.")
-    try:
-        doc = fitz.open(str(stored_path))
-        if page > len(doc):
-            raise HTTPException(status_code=400, detail=f"Page out of range. This PDF has {len(doc)} pages.")
-        pdf_page = doc[page - 1]
-        matrix = fitz.Matrix(zoom, zoom)
-        pix = pdf_page.get_pixmap(matrix=matrix, alpha=False)
-        png = pix.tobytes("png")
-        data_url = "data:image/png;base64," + base64.b64encode(png).decode("ascii")
-        label = f"{source.get('title') or source.get('original_name') or source_id} p.{page}"
-        return {
-            "source_id": source_id,
-            "page": page,
-            "page_count": len(doc),
-            "label": label,
-            "data_url": data_url,
-            "markdown": f"![{label}]({data_url})",
-        }
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to render slide page: {exc}")
+    data = _render_slide_data(source_id, page, zoom)
+    label = data["label"]
+    return {
+        "source_id": source_id,
+        "page": page,
+        "page_count": data["page_count"],
+        "label": label,
+        "data_url": data["data_url"],
+        "markdown": f"[[SLIDE_IMAGE source_id=\"{source_id}\" page=\"{page}\" caption=\"{label}\"]]",
+    }
 
 @app.get("/study/notes/{source_id}/download.md")
 def download_study_note_md(source_id: str):

@@ -59,6 +59,71 @@ function imageFigureHtml(alt, src) {
   const safeSrc = attr(src || '');
   return `<figure class="image-card" data-md-src="${safeSrc}"><button type="button" class="image-delete" contenteditable="false" aria-label="이미지 삭제">삭제</button><img alt="${safeAlt}" src="${safeSrc}" contenteditable="false"><figcaption contenteditable="true">${esc(alt || '이미지')}</figcaption></figure>`;
 }
+function parseSlideMarker(line) {
+  const m = String(line || '').trim().match(/^\[\[SLIDE_IMAGE\s+([\s\S]*?)\]\]$/);
+  if (!m) return null;
+  const attrs = {};
+  const re = /([A-Za-z_][\w-]*)=(?:"([^"]*)"|'([^']*)'|([^\s]+))/g;
+  let hit;
+  while ((hit = re.exec(m[1])) !== null) attrs[hit[1]] = hit[2] ?? hit[3] ?? hit[4] ?? '';
+  const sourceId = attrs.source_id || attrs.sourceId || attrs.source || '';
+  const page = Math.max(1, parseInt(attrs.page || attrs.p || '1', 10) || 1);
+  const zoom = Math.min(4, Math.max(0.5, parseFloat(attrs.zoom || '2') || 2));
+  const caption = attrs.caption || attrs.label || `슬라이드 ${sourceId} p.${page}`;
+  if (!sourceId) return null;
+  return { sourceId, page, zoom, caption };
+}
+function slideMarkerMarkdown(sourceId, page, caption, zoom) {
+  const cap = String(caption || `슬라이드 ${sourceId} p.${page}`).replace(/"/g, '&quot;');
+  const z = zoom ? ` zoom="${String(zoom).replace(/"/g, '&quot;')}"` : '';
+  return `[[SLIDE_IMAGE source_id="${String(sourceId).replace(/"/g, '&quot;')}" page="${page}" caption="${cap}"${z}]]`;
+}
+function slideFigureHtml(info) {
+  const safeSource = attr(info.sourceId);
+  const safePage = attr(info.page || 1);
+  const safeZoom = attr(info.zoom || 2);
+  const safeCaption = attr(info.caption || `슬라이드 ${info.sourceId} p.${info.page || 1}`);
+  return `<figure class="image-card slide-card" data-slide-source-id="${safeSource}" data-slide-page="${safePage}" data-slide-zoom="${safeZoom}" data-slide-caption="${safeCaption}"><button type="button" class="image-delete" contenteditable="false" aria-label="슬라이드 삭제">삭제</button><div class="slide-placeholder" contenteditable="false">슬라이드 불러오는 중 · ${safeSource} p.${safePage}</div><figcaption contenteditable="true">${esc(info.caption || `슬라이드 ${info.sourceId} p.${info.page || 1}`)}</figcaption></figure>`;
+}
+async function hydrateSlideImages() {
+  const cards = Array.from(document.querySelectorAll('#doc figure.slide-card'));
+  if (!cards.length) return;
+  if (!actionKey()) {
+    cards.forEach(card => {
+      const ph = card.querySelector('.slide-placeholder');
+      if (ph) ph.textContent = '슬라이드 자동 삽입 대기: 액션 키 입력 후 다시 열면 자동 로드됩니다.';
+    });
+    return;
+  }
+  await Promise.all(cards.map(async (card) => {
+    if (card.dataset.loaded === 'true') return;
+    const sourceId = card.dataset.slideSourceId;
+    const page = Math.max(1, parseInt(card.dataset.slidePage || '1', 10) || 1);
+    const zoom = Math.min(4, Math.max(0.5, parseFloat(card.dataset.slideZoom || '2') || 2));
+    const caption = card.querySelector('figcaption')?.textContent?.trim() || card.dataset.slideCaption || `${sourceId} p.${page}`;
+    try {
+      const data = await api('/sources/' + encodeURIComponent(sourceId) + '/slide-image?page=' + page + '&zoom=' + zoom, { headers: headers(false) });
+      card.dataset.loaded = 'true';
+      card.dataset.mdSrc = data.data_url || '';
+      const ph = card.querySelector('.slide-placeholder');
+      if (ph) ph.remove();
+      let img = card.querySelector('img');
+      if (!img) {
+        img = document.createElement('img');
+        img.setAttribute('contenteditable', 'false');
+        const capEl = card.querySelector('figcaption');
+        card.insertBefore(img, capEl || null);
+      }
+      img.alt = caption;
+      img.src = data.data_url;
+      status('슬라이드 자동 삽입 완료');
+    } catch (e) {
+      const ph = card.querySelector('.slide-placeholder');
+      if (ph) ph.textContent = '슬라이드 로드 실패: ' + (e.message || String(e));
+      card.classList.add('slide-error');
+    }
+  }));
+}
 function enhanceImageCards() {
   document.querySelectorAll('#doc figure.image-card').forEach((figure) => {
     if (!figure.querySelector('.image-delete')) {
@@ -179,6 +244,11 @@ function markdownToHtml(md) {
       if (block) blocks.push(block);
       continue;
     }
+    const slideMarker = parseSlideMarker(line);
+    if (slideMarker) {
+      blocks.push(slideFigureHtml(slideMarker));
+      i += 1; continue;
+    }
     const image = line.match(/^!\[([^\]]*)\]\((.+)\)$/);
     if (image) {
       blocks.push(imageFigureHtml(image[1] || '이미지', image[2]));
@@ -199,13 +269,13 @@ function markdownToHtml(md) {
       blocks.push(`<ul>${items.join('')}</ul>`); continue;
     }
     const para = [line]; i += 1;
-    while (i < lines.length && lines[i].trim() && !/^(#{1,6})\s+/.test(lines[i]) && !/^[-*]\s+/.test(lines[i]) && !lines[i].startsWith('```') && !/^!\[/.test(lines[i])) { para.push(lines[i]); i += 1; }
+    while (i < lines.length && lines[i].trim() && !/^(#{1,6})\s+/.test(lines[i]) && !/^[-*]\s+/.test(lines[i]) && !lines[i].startsWith('```') && !/^!\[/.test(lines[i]) && !parseSlideMarker(lines[i])) { para.push(lines[i]); i += 1; }
     blocks.push(`<p>${inlineMarkdownToHtml(para.join('\n')).replace(/\n/g, '<br>')}</p>`);
   }
   return blocks.join('\n') || '<p class="placeholder">왼쪽 목록에서 정리본을 열거나 새 정리본을 만드세요.</p>';
 }
 async function typesetDocument() { if (window.MathJax?.typesetPromise) { try { await MathJax.typesetPromise([$('doc')]); } catch (_) {} } }
-async function renderMarkdown(md) { isRendering = true; md = normalizeMarkdownArtifacts(md); $('markdown').value = String(md || ''); $('doc').innerHTML = markdownToHtml(md); enhanceImageCards(); await typesetDocument(); isRendering = false; }
+async function renderMarkdown(md) { isRendering = true; md = normalizeMarkdownArtifacts(md); $('markdown').value = String(md || ''); $('doc').innerHTML = markdownToHtml(md); enhanceImageCards(); await hydrateSlideImages(); await typesetDocument(); isRendering = false; }
 
 function inlineToMarkdown(node) {
   if (node.nodeType === Node.TEXT_NODE) return node.nodeValue || '';
@@ -250,7 +320,18 @@ function blockToMarkdown(el) {
   if (tag === 'ol') return Array.from(el.children).filter(li => li.tagName.toLowerCase() === 'li').map((li, idx) => `${idx + 1}. ${inlineToMarkdown(li)}`).join('\n');
   if (tag === 'div' && el.classList.contains('flow-box')) return inlineToMarkdown(el).trim();
   if (tag === 'pre') return '```\n' + (el.textContent || '') + '\n```';
-  if (tag === 'figure') { const img = el.querySelector('img'); const cap = el.querySelector('figcaption')?.textContent?.trim() || img?.alt || '이미지'; const src = el.dataset.mdSrc || img?.src || ''; return src ? `![${cap}](${src})` : ''; }
+  if (tag === 'figure') {
+    const cap = el.querySelector('figcaption')?.textContent?.trim() || el.dataset.slideCaption || '이미지';
+    if (el.classList.contains('slide-card')) {
+      const sourceId = el.dataset.slideSourceId || '';
+      const page = Math.max(1, parseInt(el.dataset.slidePage || '1', 10) || 1);
+      const zoom = el.dataset.slideZoom || '2';
+      return sourceId ? slideMarkerMarkdown(sourceId, page, cap, zoom) : '';
+    }
+    const img = el.querySelector('img');
+    const src = el.dataset.mdSrc || img?.src || '';
+    return src ? `![${cap}](${src})` : '';
+  }
   if (tag === 'img') return `![${el.alt || '이미지'}](${el.src})`;
   if (tag === 'p' || tag === 'div') return inlineToMarkdown(el).trim();
   return inlineToMarkdown(el).trim();
@@ -277,13 +358,12 @@ async function insertSlideImage() {
     const pageRaw = prompt('삽입할 슬라이드 페이지 번호를 입력하세요.', '1');
     if (!pageRaw) return;
     const page = Math.max(1, parseInt(pageRaw, 10) || 1);
-    const data = await api('/sources/' + encodeURIComponent(sourceId.trim()) + '/slide-image?page=' + page, { headers: headers(false) });
-    const figure = document.createElement('figure');
-    figure.className = 'image-card';
-    figure.dataset.mdSrc = data.data_url;
-    const caption = data.label || `${sourceId.trim()} p.${page}`;
-    figure.innerHTML = `<button type="button" class="image-delete" contenteditable="false" aria-label="이미지 삭제">삭제</button><img alt="${attr(caption)}" src="${attr(data.data_url)}" contenteditable="false"><figcaption contenteditable="true">${esc(caption)}</figcaption>`;
+    const caption = prompt('이미지 캡션을 입력하세요.', `${sourceId.trim()} p.${page}`) || `${sourceId.trim()} p.${page}`;
+    const wrap = document.createElement('div');
+    wrap.innerHTML = slideFigureHtml({ sourceId: sourceId.trim(), page, zoom: 2, caption });
+    const figure = wrap.firstElementChild;
     insertNodeAtSelection(figure);
+    await hydrateSlideImages();
     syncMarkdownFromDocument();
     status('슬라이드 삽입됨');
   } catch (e) {
