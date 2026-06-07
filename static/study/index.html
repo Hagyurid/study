@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Study Note Studio</title>
-  <link rel="stylesheet" href="styles.css?v=22_25" />
+  <link rel="stylesheet" href="styles.css?v=22_26" />
   <script>
     window.MathJax = { tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']], processEscapes: true }, svg: { fontCache: 'global' } };
   </script>
@@ -17,7 +17,7 @@
   </header>
   <main class="layout">
     <aside class="rail">
-      <h2>정리본</h2>
+      <div class="rail-head"><h2>정리본</h2><button type="button" class="rail-toggle" onclick="toggleNoteRail()" aria-label="정리본 목록 접기">접기</button></div>
       <label>액션 키</label><input id="key" type="password" placeholder="처음 한 번 입력" />
       <label>과목</label><input id="subject" placeholder="CRE" />
       <label>종류</label>
@@ -57,7 +57,7 @@
       </div>
     </section>
   </main>
-  <script src="app.js?v=22_25"></script>
+  <script src="app.js?v=22_26"></script>
 
   <div class="study-right-rail" aria-label="빠른 편집 도구">
     <button type="button" onclick="highlightSelection()">형광펜</button>

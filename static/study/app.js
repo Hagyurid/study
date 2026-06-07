@@ -573,6 +573,25 @@ function downloadMd() { if (!currentSourceId) return alert('먼저 저장하세�
 function downloadDocx() { if (!currentSourceId) return alert('먼저 저장하세요.'); window.open('/study/notes/' + encodeURIComponent(currentSourceId) + '/download.docx', '_blank'); }
 function printPdf() { if (!currentSourceId) return alert('먼저 저장하세요.'); window.open('/study/notes/' + encodeURIComponent(currentSourceId) + '/print', '_blank'); }
 
+function setNoteRailCollapsed(collapsed) {
+  const layout = document.querySelector('.layout');
+  const btn = document.querySelector('.rail-toggle');
+  if (!layout) return;
+  layout.classList.toggle('rail-collapsed', Boolean(collapsed));
+  localStorage.setItem('lecturenote_rail_collapsed', collapsed ? '1' : '0');
+  if (btn) {
+    btn.textContent = collapsed ? '목록' : '접기';
+    btn.setAttribute('aria-label', collapsed ? '정리본 목록 펼치기' : '정리본 목록 접기');
+  }
+}
+function toggleNoteRail() {
+  const layout = document.querySelector('.layout');
+  setNoteRailCollapsed(!layout?.classList.contains('rail-collapsed'));
+}
+function restoreNoteRailState() {
+  setNoteRailCollapsed(localStorage.getItem('lecturenote_rail_collapsed') === '1');
+}
+
 
 $('doc').addEventListener('click', (ev) => {
   const figure = ev.target.closest?.('figure.image-card');
@@ -617,4 +636,4 @@ $('doc').addEventListener('change', (ev) => {
 $('doc').addEventListener('input', syncMarkdownFromDocument);
 $('doc').addEventListener('paste', (ev) => { ev.preventDefault(); const text = ev.clipboardData?.getData('text/plain') || ''; document.execCommand('insertText', false, text); });
 $('markdown').addEventListener('input', () => status('원문 수정됨'));
-restore(); restoreImageScale(); renderMarkdown(''); if (actionKey()) listNotes(); else status('액션 키 입력 후 목록 불러오기');
+restore(); restoreImageScale(); restoreNoteRailState(); renderMarkdown(''); if (actionKey()) listNotes(); else status('액션 키 입력 후 목록 불러오기');
