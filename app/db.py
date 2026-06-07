@@ -216,9 +216,18 @@ def init_db() -> None:
         _ensure_column(db, "sources", "exam_scope_status", "TEXT NOT NULL DEFAULT 'unknown'")
         _ensure_column(db, "sources", "exam_usage_mode", "TEXT NOT NULL DEFAULT 'style_generation'")
         _ensure_column(db, "sources", "exam_range_note", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(db, "problem_packs", "source_id", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(db, "problem_packs", "subject", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(db, "problem_packs", "unit_number", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(db, "problem_packs", "unit_title", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(db, "problem_packs", "tags", "TEXT NOT NULL DEFAULT '[]'")
+        _ensure_column(db, "problem_packs", "source_refs", "TEXT NOT NULL DEFAULT '[]'")
         _ensure_column(db, "calculator_blueprints", "manual_markdown", "TEXT NOT NULL DEFAULT ''")
         _ensure_column(db, "calculator_blueprints", "manual_source_id", "TEXT NOT NULL DEFAULT ''")
         _ensure_column(db, "calculator_blueprints", "analysis_markdown", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(db, "calculator_blueprints", "source_id", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(db, "calculator_blueprints", "program_source_ids", "TEXT NOT NULL DEFAULT '[]'")
+        _ensure_column(db, "calculator_blueprints", "analysis_source_id", "TEXT NOT NULL DEFAULT ''")
 
 
 def make_id(prefix: str) -> str:
@@ -583,6 +592,7 @@ def get_dashboard(subject: str = "", limit: int = 8) -> Dict[str, Any]:
 
     mapping = get_mapping_status(subject)
     study_notes = list_study_notes(subject)
+    problem_packs = list_problem_packs(subject)
     calculator_projects = list_calculator_blueprints(subject)
     active_runs = [run for run in list_workflow_runs() if run.get("status") in {"running", "paused"}]
     if subject:
@@ -603,6 +613,7 @@ def get_dashboard(subject: str = "", limit: int = 8) -> Dict[str, Any]:
             "unitMapCount": mapping.get("summary", {}).get("unitMapCount", 0),
             "unitCount": mapping.get("summary", {}).get("unitCount", 0),
             "studyNoteCount": len(study_notes),
+            "problemPackCount": len(problem_packs),
             "calculatorProjectCount": len(calculator_projects),
             "activeWorkflowRunCount": len(active_runs),
         },
@@ -612,6 +623,7 @@ def get_dashboard(subject: str = "", limit: int = 8) -> Dict[str, Any]:
         "unitMaps": _limit_items(mapping.get("unitMaps", []), limit),
         "units": _limit_items(mapping.get("units", []), limit),
         "studyNotes": _limit_items(study_notes, limit),
+        "problemPacks": _limit_items(problem_packs, limit),
         "calculatorProjects": _limit_items(calculator_projects, limit),
         "activeWorkflowRuns": _limit_items(active_runs, limit),
         "recentWorkflowRuns": _limit_items(recent_runs, limit),
@@ -752,6 +764,11 @@ def delete_source(source_id: str, delete_file: bool = True) -> Dict[str, Any]:
     source = get_source(source_id)
     if not source:
         return {}
+    if source.get("source_type") == "calculator_project":
+        with conn() as db:
+            project = db.execute("SELECT id FROM calculator_blueprints WHERE source_id=?", (source_id,)).fetchone()
+        if project:
+            return delete_calculator_blueprint(project["id"])
     deleted_file = False
     file_error = ""
     if delete_file:
@@ -770,6 +787,7 @@ def delete_source(source_id: str, delete_file: bool = True) -> Dict[str, Any]:
         db.execute("DELETE FROM source_chunks WHERE source_id=?", (source_id,))
         db.execute("DELETE FROM note_versions WHERE source_id=?", (source_id,))
         db.execute("DELETE FROM transcript_revisions WHERE corrected_source_id=?", (source_id,))
+        db.execute("DELETE FROM problem_packs WHERE source_id=?", (source_id,))
         db.execute("DELETE FROM sources WHERE id=?", (source_id,))
     return {
         "ok": True,
@@ -1364,15 +1382,111 @@ def save_transcript_revision(
     return {**source, "transcript_revision_id": revision_id}
 
 
-def save_problem_pack(title: str, pack: Dict[str, Any]) -> Dict[str, Any]:
-    pack_id = pack.get("packId") or make_id("pack")
+def _json_text(value: Any) -> str:
+    return json.dumps(value or {}, ensure_ascii=False, indent=2)
+
+
+def _artifact_list(value: Any) -> List[str]:
+    if isinstance(value, list):
+        return [str(item) for item in value if str(item or "").strip()]
+    if isinstance(value, str) and value.strip():
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, list):
+                return [str(item) for item in parsed if str(item or "").strip()]
+        except Exception:
+            return [value.strip()]
+    return []
+
+
+def _pack_subject(pack: Dict[str, Any], subject: str = "") -> str:
+    meta = pack.get("metadata") if isinstance(pack.get("metadata"), dict) else {}
+    return str(subject or pack.get("subject") or meta.get("subject") or "").strip()
+
+
+def _pack_unit_number(pack: Dict[str, Any], unit_number: str = "") -> str:
+    meta = pack.get("metadata") if isinstance(pack.get("metadata"), dict) else {}
+    return str(unit_number or pack.get("unitNumber") or pack.get("unit_number") or meta.get("unitNumber") or meta.get("unit_number") or "").strip()
+
+
+def _pack_unit_title(pack: Dict[str, Any], unit_title: str = "") -> str:
+    meta = pack.get("metadata") if isinstance(pack.get("metadata"), dict) else {}
+    return str(unit_title or pack.get("unitTitle") or pack.get("unit_title") or meta.get("unitTitle") or meta.get("unit_title") or "").strip()
+
+
+def _pack_tags(pack: Dict[str, Any], tags: Optional[List[str]] = None) -> List[str]:
+    meta = pack.get("metadata") if isinstance(pack.get("metadata"), dict) else {}
+    values = tags or pack.get("tags") or meta.get("tags") or []
+    if not isinstance(values, list):
+        return []
+    return [str(item) for item in values if str(item or "").strip()]
+
+
+def _pack_source_refs(pack: Dict[str, Any], source_refs: Optional[List[str]] = None) -> List[str]:
+    meta = pack.get("metadata") if isinstance(pack.get("metadata"), dict) else {}
+    values = source_refs or pack.get("source_refs") or pack.get("sourceRefs") or meta.get("source_refs") or meta.get("sourceRefs") or []
+    if not isinstance(values, list):
+        return []
+    return [str(item) for item in values if str(item or "").strip()]
+
+
+def _problem_pack_text(title: str, pack_id: str, pack: Dict[str, Any], subject: str, unit_number: str, unit_title: str, tags: List[str], source_refs: List[str]) -> str:
+    question_count = len(pack.get("questions") or []) if isinstance(pack.get("questions"), list) else 0
+    return "\n".join([
+        f"# {title}",
+        "",
+        "type: problem_pack",
+        f"pack_id: {pack_id}",
+        f"subject: {subject}",
+        f"unitNumber: {unit_number}",
+        f"unitTitle: {unit_title}",
+        f"question_count: {question_count}",
+        "tags: " + ", ".join(tags),
+        "source_refs: " + ", ".join(source_refs),
+        "",
+        "```json",
+        _json_text(pack),
+        "```",
+    ])
+
+
+def save_problem_pack(title: str, pack: Dict[str, Any], subject: str = "", unit_number: str = "", unit_title: str = "", tags: Optional[List[str]] = None, source_refs: Optional[List[str]] = None) -> Dict[str, Any]:
+    pack_id = pack.get("packId") or pack.get("pack_id") or make_id("pack")
     token = secrets.token_urlsafe(16)
+    subject = _pack_subject(pack, subject)
+    unit_number = _pack_unit_number(pack, unit_number)
+    unit_title = _pack_unit_title(pack, unit_title)
+    tags = _pack_tags(pack, tags)
+    source_refs = _pack_source_refs(pack, source_refs)
+
+    old_source_id = ""
+    with conn() as db:
+        old = db.execute("SELECT source_id FROM problem_packs WHERE id=?", (pack_id,)).fetchone()
+        if old:
+            old_source_id = old["source_id"] or ""
+    if old_source_id:
+        try:
+            delete_source(old_source_id)
+        except Exception:
+            pass
+
+    source = save_text_source(
+        title,
+        "problem_pack",
+        _problem_pack_text(title, pack_id, pack, subject, unit_number, unit_title, tags, source_refs),
+        f"{pack_id}_problem_pack.json.md",
+        subject=subject,
+    )
+    source_id = source.get("source_id", "")
     with conn() as db:
         db.execute(
-            "INSERT OR REPLACE INTO problem_packs(id,title,token,pack_json,created_at) VALUES(?,?,?,?,?)",
-            (pack_id, title, token, json.dumps(pack, ensure_ascii=False), now()),
+            """
+            INSERT OR REPLACE INTO problem_packs(id,title,token,pack_json,created_at,source_id,subject,unit_number,unit_title,tags,source_refs)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (pack_id, title, token, json.dumps(pack, ensure_ascii=False), now(), source_id, subject, unit_number, unit_title, json.dumps(tags, ensure_ascii=False), json.dumps(source_refs, ensure_ascii=False)),
         )
-    return {"pack_id": pack_id, "token": token}
+    return {"pack_id": pack_id, "token": token, "source_id": source_id, "source_type": "problem_pack", "subject": subject, "unitNumber": unit_number, "unitTitle": unit_title}
 
 
 def get_problem_pack_by_token(token: str) -> Optional[Dict[str, Any]]:
@@ -1381,7 +1495,111 @@ def get_problem_pack_by_token(token: str) -> Optional[Dict[str, Any]]:
     if not row:
         return None
     data = dict(row)
-    return {"pack": json.loads(data["pack_json"]), "title": data["title"], "pack_id": data["id"]}
+    return {"pack": json.loads(data["pack_json"]), "title": data["title"], "pack_id": data["id"], "source_id": data.get("source_id", "")}
+
+
+def list_problem_packs(subject: str = "") -> List[Dict[str, Any]]:
+    with conn() as db:
+        rows = db.execute("SELECT * FROM problem_packs ORDER BY created_at DESC").fetchall()
+    result: List[Dict[str, Any]] = []
+    for row in rows:
+        data = dict(row)
+        if subject and data.get("subject", "") != subject:
+            continue
+        try:
+            pack = json.loads(data.get("pack_json") or "{}")
+        except Exception:
+            pack = {}
+        questions = pack.get("questions") if isinstance(pack, dict) else []
+        result.append({
+            "pack_id": data.get("id", ""),
+            "title": data.get("title", ""),
+            "source_id": data.get("source_id", ""),
+            "source_type": "problem_pack",
+            "subject": data.get("subject", ""),
+            "unitNumber": data.get("unit_number", ""),
+            "unitTitle": data.get("unit_title", ""),
+            "question_count": len(questions) if isinstance(questions, list) else 0,
+            "tags": _artifact_list(data.get("tags", "[]")),
+            "source_refs": _artifact_list(data.get("source_refs", "[]")),
+            "created_at": data.get("created_at", ""),
+        })
+    return result
+
+
+def _calculator_subject(metadata: Dict[str, Any]) -> str:
+    return str((metadata or {}).get("subject", "") or "").strip()
+
+
+def _calculator_metadata_value(metadata: Dict[str, Any], *keys: str) -> str:
+    for key in keys:
+        value = (metadata or {}).get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return ""
+
+
+def _calculator_project_text(title: str, project_id: str, blueprint: Dict[str, Any], validation: Dict[str, Any], generated: Dict[str, Any], metadata: Dict[str, Any], manual_markdown: str, analysis_markdown: str) -> str:
+    files = generated.get("files", []) if isinstance(generated, dict) else []
+    file_names = [str(item.get("name", "")) for item in files if isinstance(item, dict)]
+    return "\n".join([
+        f"# {title}",
+        "",
+        "type: calculator_project",
+        f"project_id: {project_id}",
+        f"subject: {_calculator_subject(metadata)}",
+        f"unitNumber: {_calculator_metadata_value(metadata, 'unitNumber', 'unit_number')}",
+        f"unitTitle: {_calculator_metadata_value(metadata, 'unitTitle', 'unit_title')}",
+        "files: " + ", ".join(file_names),
+        "",
+        "## Analysis",
+        analysis_markdown or "",
+        "",
+        "## Manual",
+        manual_markdown or "",
+        "",
+        "## Blueprint",
+        "```json",
+        _json_text(blueprint),
+        "```",
+        "",
+        "## Validation",
+        "```json",
+        _json_text(validation),
+        "```",
+    ])
+
+
+def _calculator_program_text(title: str, project_id: str, file_info: Dict[str, Any], metadata: Dict[str, Any]) -> str:
+    name = str(file_info.get("name") or "PROGRAM.TXT")
+    content = str(file_info.get("content") or "")
+    return "\n".join([
+        f"# {title} / {name}",
+        "",
+        "type: calculator_program",
+        f"project_id: {project_id}",
+        f"program_name: {name}",
+        f"subject: {_calculator_subject(metadata)}",
+        f"unitNumber: {_calculator_metadata_value(metadata, 'unitNumber', 'unit_number')}",
+        f"unitTitle: {_calculator_metadata_value(metadata, 'unitTitle', 'unit_title')}",
+        "",
+        "```prgm",
+        content,
+        "```",
+    ])
+
+
+def _delete_sources_quiet(source_ids: List[str]) -> None:
+    seen = set()
+    for source_id in source_ids:
+        source_id = str(source_id or "").strip()
+        if not source_id or source_id in seen:
+            continue
+        seen.add(source_id)
+        try:
+            delete_source(source_id)
+        except Exception:
+            pass
 
 
 def save_calculator_blueprint(
@@ -1395,20 +1613,14 @@ def save_calculator_blueprint(
     replace_project_id: str = "",
 ) -> Dict[str, Any]:
     blueprint_id = replace_project_id or make_id("calc")
-    subject = str((metadata or {}).get("subject", "") or "")
-    old_manual_source_id = ""
     if replace_project_id:
-        with conn() as db:
-            old = db.execute("SELECT manual_source_id FROM calculator_blueprints WHERE id=?", (replace_project_id,)).fetchone()
-            if old:
-                old_manual_source_id = old["manual_source_id"] or ""
-                db.execute("DELETE FROM calculator_blueprints WHERE id=?", (replace_project_id,))
-        if old_manual_source_id:
-            try:
-                delete_source(old_manual_source_id)
-            except Exception:
-                pass
+        delete_calculator_blueprint(replace_project_id)
+
+    subject = _calculator_subject(metadata)
     manual_source_id = ""
+    analysis_source_id = ""
+    program_source_ids: List[str] = []
+
     if manual_markdown.strip():
         source = save_text_source(
             f"{title} 사용법 및 구조 해설",
@@ -1418,11 +1630,45 @@ def save_calculator_blueprint(
             subject=subject,
         )
         manual_source_id = source.get("source_id", "")
+
+    if analysis_markdown.strip():
+        source = save_text_source(
+            f"{title} 계산기화 분석",
+            "calculator_analysis",
+            analysis_markdown,
+            f"{blueprint_id}_calculator_analysis.md",
+            subject=subject,
+        )
+        analysis_source_id = source.get("source_id", "")
+
+    files = generated.get("files", []) if isinstance(generated, dict) else []
+    for index, file_info in enumerate(files, 1):
+        if not isinstance(file_info, dict):
+            continue
+        name = str(file_info.get("name") or f"PROGRAM_{index}.TXT")
+        source = save_text_source(
+            f"{title} / {name}",
+            "calculator_program",
+            _calculator_program_text(title, blueprint_id, file_info, metadata),
+            f"{blueprint_id}_{name}.txt.md".replace("/", "_"),
+            subject=subject,
+        )
+        program_source_ids.append(source.get("source_id", ""))
+
+    project_source = save_text_source(
+        title,
+        "calculator_project",
+        _calculator_project_text(title, blueprint_id, blueprint, validation, generated, metadata, manual_markdown, analysis_markdown),
+        f"{blueprint_id}_calculator_project.md",
+        subject=subject,
+    )
+    source_id = project_source.get("source_id", "")
+
     with conn() as db:
         db.execute(
             """
-            INSERT OR REPLACE INTO calculator_blueprints(id,title,blueprint_json,validation_json,generated_json,metadata,manual_markdown,manual_source_id,analysis_markdown,created_at)
-            VALUES(?,?,?,?,?,?,?,?,?,?)
+            INSERT OR REPLACE INTO calculator_blueprints(id,title,blueprint_json,validation_json,generated_json,metadata,manual_markdown,manual_source_id,analysis_markdown,created_at,source_id,program_source_ids,analysis_source_id)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 blueprint_id,
@@ -1435,9 +1681,19 @@ def save_calculator_blueprint(
                 manual_source_id,
                 analysis_markdown,
                 now(),
+                source_id,
+                json.dumps(program_source_ids, ensure_ascii=False),
+                analysis_source_id,
             ),
         )
-    return {"calculator_project_id": blueprint_id, "manual_source_id": manual_source_id}
+    return {
+        "calculator_project_id": blueprint_id,
+        "source_id": source_id,
+        "source_type": "calculator_project",
+        "manual_source_id": manual_source_id,
+        "analysis_source_id": analysis_source_id,
+        "program_source_ids": program_source_ids,
+    }
 
 
 def _calculator_row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
@@ -1446,6 +1702,7 @@ def _calculator_row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
     data["validation"] = json.loads(data.pop("validation_json") or "{}")
     data["generated"] = json.loads(data.pop("generated_json") or "{}")
     data["metadata"] = json.loads(data.pop("metadata") or "{}")
+    data["program_source_ids"] = _artifact_list(data.get("program_source_ids", "[]"))
     return data
 
 
@@ -1462,9 +1719,13 @@ def list_calculator_blueprints(subject: str = "") -> List[Dict[str, Any]]:
         result.append({
             "calculator_project_id": data["id"],
             "title": data["title"],
+            "source_id": data.get("source_id", ""),
+            "source_type": "calculator_project",
             "subject": data.get("metadata", {}).get("subject", ""),
             "file_count": len(files),
             "manual_source_id": data.get("manual_source_id", ""),
+            "analysis_source_id": data.get("analysis_source_id", ""),
+            "program_source_ids": data.get("program_source_ids", []),
             "created_at": data.get("created_at", ""),
         })
     return result
@@ -1480,15 +1741,16 @@ def delete_calculator_blueprint(project_id: str) -> Dict[str, Any]:
     project = get_calculator_blueprint(project_id)
     if not project:
         return {}
-    manual_source_id = project.get("manual_source_id", "")
+    source_ids = [
+        project.get("source_id", ""),
+        project.get("manual_source_id", ""),
+        project.get("analysis_source_id", ""),
+        *project.get("program_source_ids", []),
+    ]
     with conn() as db:
         db.execute("DELETE FROM calculator_blueprints WHERE id=?", (project_id,))
-    if manual_source_id:
-        try:
-            delete_source(manual_source_id)
-        except Exception:
-            pass
-    return {"ok": True, "deleted_calculator_project_id": project_id, "title": project.get("title", "")}
+    _delete_sources_quiet(source_ids)
+    return {"ok": True, "deleted_calculator_project_id": project_id, "title": project.get("title", ""), "deleted_source_ids": [sid for sid in source_ids if sid]}
 
 
 def save_unit_map(title: str, source_ids: List[str], map_json: Dict[str, Any], created_by: str = "gpt") -> Dict[str, Any]:

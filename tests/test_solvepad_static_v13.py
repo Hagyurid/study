@@ -25,3 +25,13 @@ def test_solvepad_ipad_selection_guard_present():
     assert "-webkit-touch-callout:none" in css
     assert "-webkit-user-select:none" in css
     assert "user-scalable=no" in index
+
+
+def test_solvepad_modal_close_bindings_are_null_safe():
+    app = (ROOT / "static" / "solvepad" / "app.js").read_text(encoding="utf-8")
+    index = (ROOT / "static" / "solvepad" / "index.html").read_text(encoding="utf-8")
+    assert "if($('quickImport'))$('quickImport').onclick" in app
+    assert "if($('quickLibrary'))$('quickLibrary').onclick" in app
+    assert "addEventListener('click',closeModals)" in app
+    assert "if(e.target===m)closeModals()" in app
+    assert "app.js?v=5_8" in index

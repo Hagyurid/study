@@ -23,6 +23,7 @@ from app.db import (
     get_dashboard,
     get_mapping_status, get_next_section, get_source_markdown, get_problem_pack_by_token, get_source,
     get_calculator_blueprint, get_unit_map, get_workflow_options, init_db, list_external_notes,
+    list_problem_packs,
     list_note_versions, list_sources, list_study_notes, list_unit_maps, list_unmapped_sources,
     list_calculator_blueprints, list_workflow_checkpoints, list_workflow_plans, list_workflow_runs,
     save_calculator_blueprint, save_note_version, save_outline, save_problem_pack,
@@ -42,7 +43,7 @@ from app.modules.prgm_engine import generate_txt_files, validate_blueprint
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "static"
 
-app = FastAPI(title="LectureNote Suite", version="2.2.13")
+app = FastAPI(title="LectureNote Suite", version="2.2.17")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"], allow_credentials=False)
 app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
 init_db()
@@ -51,8 +52,10 @@ SOURCE_TYPES = [
     ("lecture_slides", "강의 슬라이드"), ("textbook", "교재"), ("transcript", "전사본"),
     ("corrected_transcript", "보정 전사본"), ("past_exam", "시험지/기출"),
     ("exam_trend", "시험 정보/경향"), ("generated_note", "GPT 생성 정리본"),
-    ("exam_cram", "시험 직전 정리"),
-    ("external_note", "외부 정리본"), ("calculator_manual", "계산기 사용법/구조 해설"), ("note_example", "정리본 예시"),
+    ("exam_cram", "시험 직전 정리"), ("problem_pack", "SolvePad 문제팩"),
+    ("external_note", "외부 정리본"), ("calculator_project", "계산기 프로젝트"),
+    ("calculator_program", "계산기 PRGM TXT"), ("calculator_manual", "계산기 사용법/구조 해설"),
+    ("calculator_analysis", "계산기화 분석"), ("note_example", "정리본 예시"),
 ]
 
 
@@ -652,12 +655,30 @@ def _add_markdown_table_to_docx(doc, table_lines: List[str]) -> None:
     doc.add_paragraph("")
 
 
+def _docx_body_width(doc, ratio: float = 0.6):
+    section = doc.sections[0]
+    return int((section.page_width - section.left_margin - section.right_margin) * ratio)
+
+
+def _add_docx_image_left(doc, bio: BytesIO, width) -> None:
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    doc.add_picture(bio, width=width)
+    if doc.paragraphs:
+        doc.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.LEFT
+
+
+def _add_docx_caption_left(doc, caption: str) -> None:
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    paragraph = doc.add_paragraph(caption)
+    paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+
+
 def _markdown_to_docx_bytes(title: str, markdown: str) -> BytesIO:
     from docx import Document
-    from docx.shared import Inches
     doc = Document()
     doc.core_properties.title = title or "Study Note"
     doc.add_heading(title or "Study Note", level=1)
+    output_image_width = _docx_body_width(doc, 0.6)
     image_pattern = re.compile(r"!\[([^\]]*)\]\((data:image/[^;]+;base64,([^)]+))\)")
     lines = (markdown or "").replace("\r\n", "\n").splitlines()
     fenced = False
@@ -689,10 +710,10 @@ def _markdown_to_docx_bytes(title: str, markdown: str) -> BytesIO:
             try:
                 data = _render_slide_data(slide_marker["source_id"], slide_marker["page"], slide_marker["zoom"])
                 bio = BytesIO(base64.b64decode(data["png_base64"], validate=False))
-                doc.add_picture(bio, width=Inches(5.8))
+                _add_docx_image_left(doc, bio, output_image_width)
                 caption = _clean_markdown_inline_for_docx(slide_marker.get("caption") or data.get("label") or "슬라이드")
                 if caption:
-                    doc.add_paragraph(caption)
+                    _add_docx_caption_left(doc, caption)
             except Exception as exc:
                 doc.add_paragraph(f"[슬라이드 삽입 실패: {exc}]")
             i += 1
@@ -701,10 +722,10 @@ def _markdown_to_docx_bytes(title: str, markdown: str) -> BytesIO:
         if img:
             try:
                 bio = BytesIO(base64.b64decode(img.group(3), validate=False))
-                doc.add_picture(bio, width=Inches(5.8))
+                _add_docx_image_left(doc, bio, output_image_width)
                 caption = _clean_markdown_inline_for_docx(img.group(1) or "이미지")
                 if caption:
-                    doc.add_paragraph(caption)
+                    _add_docx_caption_left(doc, caption)
             except Exception:
                 doc.add_paragraph("[이미지 삽입 실패: Study Note 화면에서 PDF 저장을 사용하세요]")
             i += 1
@@ -1291,7 +1312,7 @@ def print_study_note_page(source_id: str):
         raise HTTPException(status_code=404, detail="Study note not found")
     title = escape(note["source"].get("title", source_id))
     html = _simple_markdown_html(note.get("markdown", ""))
-    return HTMLResponse(f"""<!doctype html><html lang='ko'><head><meta charset='utf-8'/><meta name='viewport' content='width=device-width,initial-scale=1'/><title>{title}</title><script>window.MathJax={{tex:{{inlineMath:[["$","$"],["\\\\(","\\\\)"]],displayMath:[["$$","$$"],["\\\\[","\\\\]"]],processEscapes:true}},svg:{{fontCache:'global'}}}};</script><script defer src='https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js'></script><style>body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',Arial,sans-serif;line-height:1.72;max-width:820px;margin:0 auto;padding:34px;color:#111827}}.bar{{display:flex;gap:8px;margin-bottom:20px}}button,a{{border:0;border-radius:10px;padding:9px 12px;background:#4f46e5;color:white;text-decoration:none;font-weight:800}}img{{max-width:100%;border-radius:10px}}figure{{margin:18px 0;text-align:center}}figcaption{{font-size:12px;color:#667085;margin-top:6px}}mark{{background:#fff39a}}.table-wrap{{overflow:visible;margin:18px 0}}table{{width:100%;border-collapse:collapse;font-size:13px}}th,td{{border:1px solid #d0d5dd;padding:8px 10px;vertical-align:top;text-align:left}}th{{background:#f2f4f7;font-weight:800}}pre,.flow-box{{background:#f8fafc;border:1px solid #e4e7ec;border-radius:10px;padding:12px;white-space:pre-wrap}}@media print{{.bar{{display:none}}body{{padding:0;max-width:none}}table{{break-inside:auto}}tr{{break-inside:avoid}}}}</style></head><body><div class='bar'><button onclick='window.print()'>PDF로 저장/인쇄</button><a href='/static/study/index.html'>Study Studio</a><a href='/'>홈</a></div><article>{html}</article></body></html>""")
+    return HTMLResponse(f"""<!doctype html><html lang='ko'><head><meta charset='utf-8'/><meta name='viewport' content='width=device-width,initial-scale=1'/><title>{title}</title><script>window.MathJax={{tex:{{inlineMath:[["$","$"],["\\\\(","\\\\)"]],displayMath:[["$$","$$"],["\\\\[","\\\\]"]],processEscapes:true}},svg:{{fontCache:'global'}}}};</script><script defer src='https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js'></script><style>body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',Arial,sans-serif;line-height:1.72;max-width:820px;margin:0 auto;padding:34px;color:#111827}}.bar{{display:flex;gap:8px;margin-bottom:20px}}button,a{{border:0;border-radius:10px;padding:9px 12px;background:#4f46e5;color:white;text-decoration:none;font-weight:800}}figure.image-card{{width:60%;margin:18px 0;text-align:left}}figure.image-card img{{display:block;width:100%;max-width:100%;margin-left:0;margin-right:auto;border-radius:10px}}figure.image-card figcaption{{font-size:12px;color:#667085;margin-top:6px;text-align:left}}img{{max-width:100%;border-radius:10px}}figcaption{{font-size:12px;color:#667085;margin-top:6px}}mark{{background:#fff39a}}.table-wrap{{overflow:visible;margin:18px 0}}table{{width:100%;border-collapse:collapse;font-size:13px}}th,td{{border:1px solid #d0d5dd;padding:8px 10px;vertical-align:top;text-align:left}}th{{background:#f2f4f7;font-weight:800}}pre,.flow-box{{background:#f8fafc;border:1px solid #e4e7ec;border-radius:10px;padding:12px;white-space:pre-wrap}}@media print{{.bar{{display:none}}body{{padding:0;max-width:none}}table{{break-inside:auto}}tr{{break-inside:avoid}}}}</style></head><body><div class='bar'><button onclick='window.print()'>PDF로 저장/인쇄</button><a href='/static/study/index.html'>Study Studio</a><a href='/'>홈</a></div><article>{html}</article></body></html>""")
 
 @app.get("/unit-maps/{unit_map_id}", dependencies=[Depends(require_auth)])
 def get_unit_map_endpoint(unit_map_id: str):
@@ -1304,7 +1325,7 @@ def get_unit_map_endpoint(unit_map_id: str):
 @app.post("/problem-packs", dependencies=[Depends(require_auth)])
 def save_problem_pack_endpoint(payload: ProblemPackSave):
     pack = _coerce_object_payload(payload.pack, payload.pack_json, "pack")
-    saved = save_problem_pack(payload.title, pack)
+    saved = save_problem_pack(payload.title, pack, payload.subject, payload.unitNumber, payload.unitTitle, payload.tags, payload.source_refs)
     import_url = f"{PUBLIC_BASE_URL}/static/solvepad/index.html?server={PUBLIC_BASE_URL}&importToken={saved['token']}"
     return {
         **saved,
@@ -1314,6 +1335,13 @@ def save_problem_pack_endpoint(payload: ProblemPackSave):
         "program": "SolvePad",
         "message": "Saved problem pack. Open open_url to auto-import and open it in SolvePad without manual upload.",
     }
+
+
+
+
+@app.get("/problem-packs", dependencies=[Depends(require_auth)])
+def list_problem_packs_endpoint(subject: str = Query(default="")):
+    return {"problem_packs": list_problem_packs(subject)}
 
 
 @app.get("/packs/{token}")

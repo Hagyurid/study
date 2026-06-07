@@ -39,6 +39,11 @@ class ProblemPackSave(BaseModel):
     title: str = "SolvePad Problem Pack"
     pack: Dict[str, Any] = Field(default_factory=dict)
     pack_json: str = ""
+    subject: str = ""
+    unitNumber: str = ""
+    unitTitle: str = ""
+    tags: List[str] = Field(default_factory=list)
+    source_refs: List[str] = Field(default_factory=list)
 
 
 class CalculatorBlueprintSave(BaseModel):

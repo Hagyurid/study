@@ -549,3 +549,60 @@ pytest -q
 pytest -q
 # 29 passed
 ```
+
+## v22.16 artifact source index + image output sizing
+
+수정 범위는 운영 동작에 필요한 코드, Action 스키마, 테스트, README 기록으로 제한했습니다. Custom GPT Instructions/Knowledge 문서는 수정하지 않았습니다.
+
+### 수정 내용
+
+- GPT가 생성한 SolvePad 문제팩을 단순 import 파일이 아니라 `problem_pack` 자료 유형으로 source index에 등록합니다.
+  - `/problem-packs` 저장 응답에 `source_id`, `source_type`, `open_url`, `import_url`, `solvepad_url`을 함께 반환합니다.
+  - `/problem-packs?subject=...`로 저장된 문제팩 목록을 조회할 수 있습니다.
+  - `/sources/search`에서 `source_types=["problem_pack"]`로 문제팩 내용을 검색할 수 있습니다.
+  - `/dashboard`에 `problemPackCount`와 `problemPacks` 목록을 포함합니다.
+- GPT가 생성한 CASIO 계산기 프로젝트를 조회 가능한 자료 유형으로 분리 등록합니다.
+  - `calculator_project`: 계산기 프로젝트 요약/blueprint/분석/사용법 묶음
+  - `calculator_program`: 개별 CASIO PRGM TXT 파일
+  - `calculator_manual`: 계산기 사용법·구조 해설
+  - `calculator_analysis`: 계산기화 분석 문서
+  - `/calculator/generate` 응답에 프로젝트 `source_id`, `program_source_ids`, `manual_source_id`, `analysis_source_id`를 반환합니다.
+  - 위 유형들은 `/sources/search`, `/sources/manage`, `/dashboard`에서 조회할 수 있습니다.
+- 계산기 프로젝트 삭제 시 연결된 프로젝트/프로그램/사용법/분석 source도 함께 정리합니다.
+- 자동 삽입 이미지와 일반 이미지의 Word/PDF/인쇄 출력 크기를 본문폭 기준 약 60%로 줄이고 왼쪽 정렬합니다.
+  - Study Note Studio 인쇄 CSS에 60%/left-align 규칙을 적용했습니다.
+  - `/study/notes/{source_id}/print` 출력 CSS에도 60%/left-align 규칙을 적용했습니다.
+  - DOCX export에서 이미지 너비를 문서 본문폭의 60%로 계산하고 왼쪽 정렬합니다.
+- Action OpenAPI 문서에 문제팩 subject/unit/tags/source_refs 필드와 `listProblemPacks`를 반영했습니다.
+
+### 검증
+
+```bash
+pytest -q
+# 32 passed
+```
+
+
+## v22.17 storage/index correction + SolvePad modal close fix
+
+수정 범위는 운영 동작에 필요한 코드, Action 스키마, 테스트, README 기록으로 제한했습니다. Custom GPT Instructions/Knowledge 문서는 수정하지 않았습니다.
+
+### 수정 내용
+
+- 문제팩/계산기는 기존처럼 전용 테이블에만 저장하지 않고, 생성 시 `sources`/`source_chunks`에도 조회용 레코드를 함께 생성합니다.
+  - `problem_pack`은 `problem_packs` 테이블과 source index에 동시에 저장됩니다.
+  - `calculator_project`, `calculator_program`, `calculator_manual`, `calculator_analysis`는 계산기 프로젝트 저장 시 source index에 함께 등록됩니다.
+  - 따라서 `/dashboard`, `/sources/search`, `/sources/manage`에서 생성물을 바로 조회할 수 있습니다.
+- 계산기 프로젝트 삭제 시 연결된 프로젝트/프로그램/사용법/분석 source 레코드도 함께 삭제되도록 정리했습니다.
+- SolvePad의 “문제 불러오기”/“문제팩 관리” 모달에서 일부 화면에 없는 `quickImport`, `quickLibrary` 버튼 참조 때문에 JS 초기화가 중단될 수 있던 문제를 수정했습니다.
+  - 닫기 버튼이 정상 동작합니다.
+  - 모달 바깥 영역 클릭으로도 닫힙니다.
+- v15 패치본과 v13 클린본의 파일 목록을 비교했고, v13에만 있는 누락 파일은 없었습니다.
+- 자동 삽입 이미지의 Word/PDF/인쇄 출력은 본문폭 60%, 왼쪽 정렬 규칙을 유지합니다.
+
+### 검증
+
+```bash
+pytest -q
+# 전체 테스트 통과
+```

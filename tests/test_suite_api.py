@@ -786,3 +786,133 @@ def test_unit_map_heading_auto_slide_insertion(tmp_path):
     assert data["auto_slide_markers_inserted"] == 1
     assert f'source_id="{slide["source_id"]}"' in data["content_markdown"]
     assert 'page="2"' in data["content_markdown"]
+
+
+def test_problem_pack_is_registered_as_searchable_source():
+    pack = {
+        "packId": "indexed-pack",
+        "title": "Indexed Pack",
+        "subject": "CRE",
+        "unitNumber": "1",
+        "unitTitle": "Batch Reactor",
+        "tags": ["conversion", "reactor"],
+        "questions": [{
+            "id": "q001",
+            "title": "Indexed Question",
+            "promptMd": "Find reactor conversion.",
+            "answer": {"value": "X"},
+            "solution": {"concepts": [], "actualSolution": [], "cautions": [], "tips": []}
+        }]
+    }
+    response = client.post("/problem-packs", json={"title": "Indexed Pack", "pack": pack})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["source_type"] == "problem_pack"
+    assert data["source_id"]
+
+    listed = client.get("/problem-packs?subject=CRE")
+    assert listed.status_code == 200
+    assert any(p["pack_id"] == "indexed-pack" and p["source_id"] == data["source_id"] for p in listed.json()["problem_packs"])
+
+    search = client.post("/sources/search", json={"query": "reactor conversion", "subject": "CRE", "source_types": ["problem_pack"], "limit": 5})
+    assert search.status_code == 200
+    assert any(r["source_id"] == data["source_id"] for r in search.json()["results"])
+
+    dashboard = client.get("/dashboard?subject=CRE")
+    assert dashboard.status_code == 200
+    assert dashboard.json()["summary"]["problemPackCount"] >= 1
+    assert "problem_pack" in dashboard.json()["bySourceType"]
+
+
+def test_calculator_project_program_and_analysis_are_searchable_sources():
+    blueprint = {
+        "meta": {"graphEnabled": False, "strictFinalNames": True},
+        "files": [{"name": "MAIN", "lines": [{"type": "text", "value": "REACTOR"}]}]
+    }
+    response = client.post("/calculator/generate", json={
+        "title": "Indexed Calculator",
+        "blueprint": blueprint,
+        "metadata": {"subject": "CRE", "unitNumber": "1", "unitTitle": "Batch Reactor"},
+        "analysis_markdown": "# Analysis\nreactor conversion calculation",
+        "manual_markdown": "# Manual\nRun MAIN for reactor conversion."
+    })
+    assert response.status_code == 200
+    data = response.json()
+    assert data["source_type"] == "calculator_project"
+    assert data["source_id"]
+    assert data["program_source_ids"]
+    assert data["manual_source_id"]
+    assert data["analysis_source_id"]
+
+    for source_type in ["calculator_project", "calculator_program", "calculator_manual", "calculator_analysis"]:
+        search = client.post("/sources/search", json={"query": "reactor conversion", "subject": "CRE", "source_types": [source_type], "limit": 5})
+        assert search.status_code == 200
+        assert search.json()["results"], source_type
+
+    dashboard = client.get("/dashboard?subject=CRE")
+    assert dashboard.status_code == 200
+    by_type = dashboard.json()["bySourceType"]
+    assert "calculator_project" in by_type
+    assert "calculator_program" in by_type
+    assert "calculator_analysis" in by_type
+
+
+def test_print_and_docx_image_output_rules_are_left_aligned_sixty_percent():
+    css = Path("static/study/styles.css").read_text(encoding="utf-8")
+    assert ".doc .image-card{width:60%;margin:18px 0;text-align:left}" in css
+    assert ".doc .image-card figcaption{text-align:left}" in css
+
+    created = client.post('/study/notes', json={
+        'title': 'Image Size Note',
+        'subject': 'CRE',
+        'source_type': 'generated_note',
+        'content_markdown': '# 이미지\n\n![샘플](data:image/png;base64,iVBORw0KGgo=)',
+        'replace_latest': False
+    })
+    assert created.status_code == 200
+    printed = client.get(f"/study/notes/{created.json()['source_id']}/print")
+    assert printed.status_code == 200
+    assert "figure.image-card{width:60%;margin:18px 0;text-align:left}" in printed.text
+
+
+def test_artifact_storage_creates_source_rows_not_only_private_tables():
+    pack = {
+        "packId": "storage-mode-pack",
+        "title": "Storage Mode Pack",
+        "subject": "STORE",
+        "unitNumber": "2",
+        "unitTitle": "Indexed Artifacts",
+        "questions": [{
+            "id": "q001",
+            "title": "Stored Problem",
+            "promptMd": "storage source row check",
+            "answer": {"value": "ok"},
+            "solution": {"concepts": [], "actualSolution": [], "cautions": [], "tips": []}
+        }]
+    }
+    saved_pack = client.post("/problem-packs", json={"title": "Storage Mode Pack", "pack": pack})
+    assert saved_pack.status_code == 200
+    pack_source_id = saved_pack.json()["source_id"]
+    sources = client.get("/sources?subject=STORE&source_type=problem_pack")
+    assert sources.status_code == 200
+    assert any(s["id"] == pack_source_id for s in sources.json()["sources"])
+
+    blueprint = {
+        "meta": {"graphEnabled": False, "strictFinalNames": True},
+        "files": [{"name": "MAIN", "lines": [{"type": "text", "value": "STORE"}]}]
+    }
+    saved_calc = client.post("/calculator/generate", json={
+        "title": "Storage Mode Calculator",
+        "blueprint": blueprint,
+        "metadata": {"subject": "STORE", "unitNumber": "2", "unitTitle": "Indexed Artifacts"},
+        "analysis_markdown": "storage analysis source row check",
+        "manual_markdown": "storage manual source row check"
+    })
+    assert saved_calc.status_code == 200
+    calc_data = saved_calc.json()
+    assert calc_data["source_id"]
+    assert calc_data["program_source_ids"]
+    for source_type in ["calculator_project", "calculator_program", "calculator_manual", "calculator_analysis"]:
+        res = client.get(f"/sources?subject=STORE&source_type={source_type}")
+        assert res.status_code == 200
+        assert res.json()["sources"], source_type

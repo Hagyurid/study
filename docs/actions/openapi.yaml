@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: LectureNote Suite Actions
-  version: 2.2.0
+  version: 2.2.17
 servers:
   - url: https://study-xqe8.onrender.com
 
@@ -19,7 +19,7 @@ paths:
   /dashboard:
     get:
       operationId: getDashboard
-      summary: Get compact menu/status dashboard for sources, mapping, notes, calculators, and active workflows.
+      summary: Get compact menu/status dashboard for sources, mapping, notes, problem packs, calculators, and active workflows.
       parameters:
         - name: subject
           in: query
@@ -66,7 +66,7 @@ paths:
   /sources/search:
     post:
       operationId: searchSources
-      summary: Search saved source chunks by query, subject, and source type.
+      summary: Search saved source chunks by query, subject, and source type, including problem/calculator artifact types.
       requestBody:
         required: true
         content:
@@ -313,9 +313,35 @@ paths:
                 pack_json:
                   type: string
                   description: JSON object text fallback for Custom GPT Actions reliability. Use when object transmission is unstable.
+                subject:
+                  type: string
+                unitNumber:
+                  type: string
+                unitTitle:
+                  type: string
+                tags:
+                  type: array
+                  items:
+                    type: string
+                source_refs:
+                  type: array
+                  items:
+                    type: string
       responses:
         "200":
-          description: Saved problem pack with open_url/import_url/solvepad_url.
+          description: Saved problem pack with open_url/import_url/solvepad_url and searchable source_id.
+    get:
+      operationId: listProblemPacks
+      summary: List saved SolvePad problem packs registered in the source index.
+      parameters:
+        - name: subject
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Problem packs.
 
   /calculator/projects:
     get:
@@ -419,7 +445,7 @@ paths:
                   type: string
       responses:
         "200":
-          description: Generated calculator project with open_url/studio_url/casio_url/download_url.
+          description: Generated calculator project with searchable source_id, linked artifact source IDs, and open_url/studio_url/casio_url/download_url.
 
   /transcripts/revisions:
     post:
