@@ -45,7 +45,7 @@ from app.modules.prgm_engine import generate_txt_files, validate_blueprint
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "static"
 
-app = FastAPI(title="LectureNote Suite", version="2.2.25")
+app = FastAPI(title="LectureNote Suite", version="2.2.27")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"], allow_credentials=False)
 app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
 init_db()
@@ -107,7 +107,7 @@ def _exam_meta_text(exam_scope_status: str, exam_usage_mode: str, exam_range_not
 
 def _page(title: str, body: str) -> HTMLResponse:
     return HTMLResponse(f"""<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>{escape(title)}</title><style>
-:root{{--bg:#f6f7fb;--card:#fff;--text:#171923;--muted:#667085;--line:#e4e7ec;--accent:#4f46e5;--accent2:#eef2ff;--danger:#d92d20;--ok:#047857}}*{{box-sizing:border-box}}body{{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans KR',Arial,sans-serif;background:linear-gradient(180deg,#f8f9ff 0%,#f6f7fb 42%,#f3f4f8 100%);color:var(--text)}}.wrap{{max-width:1120px;margin:0 auto;padding:32px 20px 56px}}.top{{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:24px}}h1{{font-size:30px;line-height:1.2;margin:0 0 8px;letter-spacing:-.035em}}h2{{margin:0 0 8px;font-size:20px;letter-spacing:-.02em}}p{{margin:0;color:var(--muted);line-height:1.6}}.nav,.actions{{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}}a.btn,button,.btn{{border:0;border-radius:12px;padding:10px 14px;background:var(--accent);color:#fff;text-decoration:none;font-weight:750;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px}}a.btn.secondary,.btn.secondary{{background:var(--accent2);color:var(--accent)}}button.danger{{background:var(--danger)}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}}.card{{background:rgba(255,255,255,.92);border:1px solid var(--line);border-radius:22px;padding:22px;box-shadow:0 12px 34px rgba(16,24,40,.06);backdrop-filter:blur(8px)}}label{{display:block;font-weight:760;margin:16px 0 8px}}input,select{{width:100%;border:1px solid var(--line);border-radius:13px;padding:12px 13px;font-size:15px;background:white;outline:none}}input:focus,select:focus{{border-color:#818cf8;box-shadow:0 0 0 4px rgba(79,70,229,.12)}}input[type=file]{{padding:16px;border-style:dashed;background:#fbfcff}}input[type=checkbox]{{width:auto;accent-color:var(--accent)}}.hint{{font-size:13px;color:var(--muted);margin-top:6px}}.keybox{{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px}}.keybox label{{margin:0;font-weight:600;color:var(--muted);font-size:13px;display:flex;gap:6px;align-items:center}}.keybox input[type=checkbox]{{width:auto}}.key-status{{font-size:13px;color:var(--ok);font-weight:700}}table{{width:100%;border-collapse:collapse;background:white;border-radius:16px;overflow:hidden}}th,td{{border-bottom:1px solid var(--line);padding:12px;text-align:left;vertical-align:top;font-size:14px}}th{{background:#f9fafb;color:#344054;font-size:13px}}code{{background:#f2f4f7;padding:2px 6px;border-radius:6px}}.pill{{display:inline-block;padding:4px 8px;border-radius:999px;background:var(--accent2);color:var(--accent);font-size:12px;font-weight:800;white-space:nowrap}}.subject-pill{{min-width:52px;text-align:center}}.type-label{{white-space:nowrap;color:#344054;font-weight:700}}.renamebar{{display:grid;grid-template-columns:minmax(220px,1fr) 170px auto auto;gap:10px;align-items:end;width:100%}}@media(max-width:760px){{.renamebar{{grid-template-columns:1fr}}}}.muted{{color:var(--muted)}}.kbd{{border:1px solid var(--line);background:#fff;border-radius:8px;padding:2px 7px;font-size:12px;color:#344054}}@media(max-width:640px){{.top{{display:block}}.wrap{{padding:22px 14px}}h1{{font-size:25px}}}}</style></head><body><main class="wrap">{body}</main><script>
+:root{{--bg:#f6f7fb;--card:#fff;--text:#171923;--muted:#667085;--line:#e4e7ec;--accent:#4f46e5;--accent2:#eef2ff;--danger:#d92d20;--ok:#047857}}*{{box-sizing:border-box}}body{{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Noto Sans KR',Arial,sans-serif;background:linear-gradient(180deg,#f8f9ff 0%,#f6f7fb 42%,#f3f4f8 100%);color:var(--text)}}.wrap{{max-width:1120px;margin:0 auto;padding:32px 20px 56px}}.top{{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:24px}}h1{{font-size:30px;line-height:1.2;margin:0 0 8px;letter-spacing:-.035em}}h2{{margin:0 0 8px;font-size:20px;letter-spacing:-.02em}}p{{margin:0;color:var(--muted);line-height:1.6}}.nav,.actions{{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}}a.btn,button,.btn{{border:0;border-radius:12px;padding:10px 14px;background:var(--accent);color:#fff;text-decoration:none;font-weight:750;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px}}a.btn.secondary,.btn.secondary{{background:var(--accent2);color:var(--accent)}}button.danger{{background:var(--danger)}}.grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}}.card{{background:rgba(255,255,255,.92);border:1px solid var(--line);border-radius:22px;padding:22px;box-shadow:0 12px 34px rgba(16,24,40,.06);backdrop-filter:blur(8px)}}label{{display:block;font-weight:760;margin:16px 0 8px}}input,select{{width:100%;border:1px solid var(--line);border-radius:13px;padding:12px 13px;font-size:15px;background:white;outline:none}}input:focus,select:focus{{border-color:#818cf8;box-shadow:0 0 0 4px rgba(79,70,229,.12)}}input[type=file]{{padding:16px;border-style:dashed;background:#fbfcff}}input[type=checkbox]{{width:auto;accent-color:var(--accent)}}.hint{{font-size:13px;color:var(--muted);margin-top:6px}}.keybox{{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px}}.keybox label{{margin:0;font-weight:600;color:var(--muted);font-size:13px;display:flex;gap:6px;align-items:center}}.keybox input[type=checkbox]{{width:auto}}.key-status{{font-size:13px;color:var(--ok);font-weight:700}}table{{width:100%;border-collapse:collapse;background:white;border-radius:16px;overflow:hidden}}th,td{{border-bottom:1px solid var(--line);padding:12px;text-align:left;vertical-align:top;font-size:14px}}th{{background:#f9fafb;color:#344054;font-size:13px}}code{{background:#f2f4f7;padding:2px 6px;border-radius:6px}}.pill{{display:inline-block;padding:4px 8px;border-radius:999px;background:var(--accent2);color:var(--accent);font-size:12px;font-weight:800;white-space:nowrap}}.subject-pill{{min-width:52px;text-align:center}}.type-label{{white-space:nowrap;color:#344054;font-weight:700}}.renamebar{{display:grid;grid-template-columns:minmax(220px,1fr) 170px auto auto;gap:10px;align-items:end;width:100%}}.pdfbar{{display:flex;gap:8px;flex-wrap:wrap;align-items:center;background:#f8f9ff;border:1px solid var(--line);border-radius:16px;padding:12px;margin:0 0 12px}}.pdfbar .label{{font-weight:800;color:#344054;margin-right:4px}}@media(max-width:760px){{.renamebar{{grid-template-columns:1fr}}.pdfbar{{align-items:stretch}}.pdfbar .btn,.pdfbar button{{width:100%}}}}.muted{{color:var(--muted)}}.kbd{{border:1px solid var(--line);background:#fff;border-radius:8px;padding:2px 7px;font-size:12px;color:#344054}}@media(max-width:640px){{.top{{display:block}}.wrap{{padding:22px 14px}}h1{{font-size:25px}}}}</style></head><body><main class="wrap">{body}</main><script>
 (function(){{
   const KEY = "lecturenote_action_key";
   const SUBJECT = "lecturenote_subject";
@@ -785,6 +785,166 @@ def _markdown_to_docx_bytes(title: str, markdown: str) -> BytesIO:
 
 
 
+PRINTABLE_SOURCE_TYPES = {
+    "generated_note", "external_note", "exam_cram", "calculator_manual", "calculator_analysis",
+    "calculator_project", "calculator_program", "note_example", "corrected_transcript", "transcript",
+    "lecture_slides", "textbook", "past_exam", "exam_trend",
+}
+
+
+def _selected_ids(values: Optional[List[str]]) -> List[str]:
+    ids: List[str] = []
+    seen = set()
+    for value in values or []:
+        source_id = str(value or "").strip()
+        if source_id and source_id not in seen:
+            seen.add(source_id)
+            ids.append(source_id)
+    return ids
+
+
+def _print_shell(title: str, body_html: str, subtitle: str = "") -> HTMLResponse:
+    safe_title = escape(title or "PDF 출력")
+    safe_subtitle = escape(subtitle or "")
+    return HTMLResponse(f"""<!doctype html><html lang='ko'><head><meta charset='utf-8'/><meta name='viewport' content='width=device-width,initial-scale=1'/><title>{safe_title}</title><script>window.MathJax={{tex:{{inlineMath:[["$","$"],["\\\\(","\\\\)"]],displayMath:[["$$","$$"],["\\\\[","\\\\]"]],processEscapes:true}},svg:{{fontCache:'global'}}}};</script><script defer src='https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js'></script><style>@page{{size:A4;margin:14mm}}*{{box-sizing:border-box}}body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',Arial,sans-serif;margin:0;background:#f5f7fb;color:#111827;font-size:14px;line-height:1.68}}.print-actions{{position:sticky;top:0;z-index:10;display:flex;gap:8px;align-items:center;justify-content:space-between;padding:12px 16px;background:rgba(255,255,255,.94);border-bottom:1px solid #e4e7ec;backdrop-filter:blur(8px)}}.print-actions .meta{{color:#667085;font-size:13px}}button,a{{border:0;border-radius:10px;padding:9px 12px;background:#4f46e5;color:white;text-decoration:none;font-weight:800;cursor:pointer}}a.secondary{{background:#eef2ff;color:#4f46e5}}main{{max-width:900px;margin:0 auto;padding:24px 18px 56px}}.print-doc,.paper-pack{{background:white;border:1px solid #e4e7ec;border-radius:18px;padding:28px 34px;margin:0 0 24px;box-shadow:0 10px 28px rgba(16,24,40,.06);break-after:page}}.print-doc:last-child,.paper-pack:last-child{{break-after:auto}}.doc-meta,.pack-meta,.question-meta{{color:#667085;font-size:12px;margin:4px 0 18px}}h1{{font-size:28px;line-height:1.25;letter-spacing:-.035em;margin:0 0 10px}}h2{{font-size:20px;margin:28px 0 10px;letter-spacing:-.02em}}h3{{font-size:16px;margin:18px 0 8px}}p{{margin:0 0 12px}}ul,ol{{padding-left:22px}}li{{margin:4px 0}}.question-card{{border:1px solid #d0d5dd;border-radius:14px;padding:18px;margin:18px 0 22px;break-inside:avoid;background:#fff}}.solution-card{{border:1px solid #d0d5dd;border-radius:14px;padding:18px;margin:18px 0 22px;break-inside:avoid;background:#fff}}.prompt-box{{border-left:4px solid #4f46e5;padding:10px 12px;background:#f8f9ff;border-radius:10px;margin:10px 0 14px}}.answer-space{{min-height:150px;border:1px dashed #98a2b3;border-radius:12px;background:linear-gradient(#fff,#fff),repeating-linear-gradient(0deg,transparent,transparent 27px,#eef2f7 28px);margin-top:14px;padding:12px;color:#98a2b3}}.answer-box{{border:1px solid #bbf7d0;background:#f0fdf4;border-radius:12px;padding:12px;margin:10px 0}}.section-box{{border:1px solid #e4e7ec;border-radius:12px;padding:12px;margin:10px 0;background:#fcfcfd}}.choices{{list-style-type:upper-alpha}}mark{{background:#fff39a}}figure.image-card{{width:60%;margin:18px 0;text-align:left}}figure.image-card img{{display:block;width:100%;max-width:100%;height:auto;max-height:none;object-fit:contain;margin-left:0;margin-right:auto;border-radius:10px}}figure.image-card figcaption{{font-size:12px;color:#667085;margin-top:6px;text-align:left}}img{{max-width:100%;height:auto;object-fit:contain;border-radius:10px}}.table-wrap{{overflow:visible;margin:18px 0}}table{{width:100%;border-collapse:collapse;font-size:13px;break-inside:auto}}th,td{{border:1px solid #d0d5dd;padding:8px 10px;vertical-align:top;text-align:left}}th{{background:#f2f4f7;font-weight:800}}pre,.flow-box{{background:#f8fafc;border:1px solid #e4e7ec;border-radius:10px;padding:12px;white-space:pre-wrap}}@media print{{body{{background:white;font-size:12px}}main{{max-width:none;margin:0;padding:0}}.print-actions{{display:none}}.print-doc,.paper-pack{{border:0;border-radius:0;box-shadow:none;margin:0;padding:0 0 12mm}}.question-card,.solution-card{{break-inside:avoid}}tr{{break-inside:avoid}}}}</style></head><body><div class='print-actions'><div><b>{safe_title}</b><div class='meta'>{safe_subtitle}</div></div><div><button onclick='window.print()'>PDF로 저장/인쇄</button> <a class='secondary' href='/sources/manage'>파일 관리</a></div></div><main>{body_html}</main></body></html>""")
+
+
+def _source_print_html(source_id: str, index: int = 1) -> str:
+    note = get_source_markdown(source_id)
+    if not note:
+        return f"<section class='print-doc'><h1>자료를 찾을 수 없음</h1><p><code>{escape(source_id)}</code></p></section>"
+    source = note.get("source") or {}
+    title = escape(source.get("title") or source_id)
+    source_type = escape(_source_type_label(source.get("source_type", "")))
+    subject = escape(source.get("subject") or "미지정")
+    sid = escape(source.get("id") or source_id)
+    html = _simple_markdown_html(note.get("markdown", "")) or "<p class='muted'>출력할 본문이 없습니다.</p>"
+    return f"<section class='print-doc'><header><h1>{index}. {title}</h1><div class='doc-meta'>과목: {subject} · 유형: {source_type} · source_id: <code>{sid}</code></div></header><article>{html}</article></section>"
+
+
+def _pack_for_source_id(source_id: str) -> Optional[Dict[str, Any]]:
+    clean = str(source_id or "").strip()
+    if not clean:
+        return None
+    direct = get_problem_pack_by_id(clean)
+    if direct:
+        return direct
+    for item in list_problem_packs(""):
+        if item.get("source_id") == clean or item.get("pack_id") == clean:
+            return get_problem_pack_by_id(item.get("pack_id", ""))
+    return None
+
+
+def _as_markdown_html(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, (dict, list)):
+        text = json.dumps(value, ensure_ascii=False, indent=2)
+        return "<pre>" + escape(text) + "</pre>"
+    return _simple_markdown_html(str(value))
+
+
+def _as_plain(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value)
+
+
+def _solution_items(value: Any) -> List[str]:
+    if value is None or value == "":
+        return []
+    if isinstance(value, list):
+        return [_as_plain(item) for item in value if _as_plain(item).strip()]
+    return [_as_plain(value)]
+
+
+def _render_solution_section(label: str, value: Any) -> str:
+    items = _solution_items(value)
+    if not items:
+        return ""
+    body = "".join(f"<li>{_as_markdown_html(item)}</li>" for item in items)
+    return f"<div class='section-box'><h3>{escape(label)}</h3><ul>{body}</ul></div>"
+
+
+def _question_choices_html(question: Dict[str, Any]) -> str:
+    choices = question.get("choices") or []
+    if isinstance(choices, dict):
+        choices = choices.get("items") or choices.get("choices") or []
+    if not isinstance(choices, list) or not choices:
+        return ""
+    items = []
+    for choice in choices:
+        if isinstance(choice, dict):
+            label = str(choice.get("label") or choice.get("id") or "").strip()
+            text = choice.get("text") or choice.get("content") or choice.get("prompt") or choice.get("value") or ""
+            prefix = f"<b>{escape(label)}.</b> " if label else ""
+            items.append(f"<li>{prefix}{_as_markdown_html(text)}</li>")
+        else:
+            items.append(f"<li>{_as_markdown_html(choice)}</li>")
+    return "<ol class='choices'>" + "".join(items) + "</ol>"
+
+
+def _question_title(question: Dict[str, Any], index: int) -> str:
+    return str(question.get("title") or question.get("id") or f"문제 {index}")
+
+
+def _question_prompt(question: Dict[str, Any]) -> Any:
+    return question.get("promptMd") or question.get("prompt") or question.get("question") or question.get("body") or ""
+
+
+def _answer_html(answer: Any) -> str:
+    if answer is None or answer == "":
+        return "<p>정답 정보 없음</p>"
+    if isinstance(answer, dict):
+        if "value" in answer:
+            return _as_markdown_html(answer.get("value"))
+        if "text" in answer:
+            return _as_markdown_html(answer.get("text"))
+    return _as_markdown_html(answer)
+
+
+def _problem_pack_print_html(pack_data: Dict[str, Any], mode: str, pack_index: int = 1) -> str:
+    pack = pack_data.get("pack") or {}
+    title = escape(pack_data.get("title") or pack.get("title") or f"문제팩 {pack_index}")
+    pack_id = escape(pack_data.get("pack_id") or pack.get("packId") or pack.get("pack_id") or "")
+    questions = pack.get("questions") if isinstance(pack, dict) else []
+    if not isinstance(questions, list):
+        questions = []
+    heading = "문제지" if mode == "questions" else "해설지"
+    body: List[str] = [f"<section class='paper-pack'><header><h1>{title} - {heading}</h1><div class='pack-meta'>pack_id: <code>{pack_id}</code> · 문항 수: {len(questions)}</div></header>"]
+    for idx, question in enumerate(questions, 1):
+        if not isinstance(question, dict):
+            continue
+        q_title = escape(_question_title(question, idx))
+        difficulty = escape(str(question.get("difficulty") or ""))
+        minutes = escape(str(question.get("estimatedMinutes") or ""))
+        meta_bits = []
+        if difficulty:
+            meta_bits.append(f"난이도 {difficulty}")
+        if minutes:
+            meta_bits.append(f"예상 {minutes}분")
+        meta = " · ".join(meta_bits)
+        prompt = _as_markdown_html(_question_prompt(question)) or "<p>문항 본문 없음</p>"
+        if mode == "questions":
+            body.append(f"<article class='question-card'><h2>문제 {idx}. {q_title}</h2><div class='question-meta'>{meta}</div><div class='prompt-box'>{prompt}</div>{_question_choices_html(question)}<div class='answer-space'>풀이 공간</div></article>")
+        else:
+            solution = question.get("solution") or {}
+            if not isinstance(solution, dict):
+                solution = {"actualSolution": solution}
+            sections = "".join([
+                _render_solution_section("핵심 개념", solution.get("concepts")),
+                _render_solution_section("풀이", solution.get("actualSolution")),
+                _render_solution_section("주의", solution.get("cautions")),
+                _render_solution_section("팁", solution.get("tips")),
+                _render_solution_section("힌트", question.get("hints")),
+            ]) or "<p>해설 정보 없음</p>"
+            body.append(f"<article class='solution-card'><h2>해설 {idx}. {q_title}</h2><div class='question-meta'>{meta}</div><div class='prompt-box'>{prompt}</div><div class='answer-box'><h3>정답</h3>{_answer_html(question.get('answer'))}</div>{sections}</article>")
+    body.append("</section>")
+    return "".join(body)
+
+
 def _prepare_note_markdown_for_save(markdown: str, subject: str = "", source_type: str = "generated_note", auto_slide_images: bool = True) -> Tuple[str, int]:
     auto_enabled_types = {"generated_note", "exam_cram"}
     if source_type not in auto_enabled_types:
@@ -979,10 +1139,50 @@ def manage_sources_page(subject: str = Query(default=""), source_type: str = Que
     table_rows = "\n".join(rows) or "<tr><td colspan='7' class='muted'>업로드된 자료가 없습니다.</td></tr>"
     return _page(
         "업로드 파일 관리",
-        f"""<section class='top'><div><h1>업로드 파일 관리</h1><p>업로드한 자료를 과목과 유형별로 필터링하고, 여러 자료를 선택해 한 번에 삭제하거나 표시 파일명을 변경할 수 있습니다.</p></div><div class='nav'><a class='btn secondary' href='/upload'>자료 업로드</a><a class='btn secondary' href='/'>홈</a></div></section>
+        f"""<section class='top'><div><h1>업로드 파일 관리</h1><p>자료를 필터링하고 여러 문서를 하나의 PDF 인쇄 화면으로 묶거나, SolvePad 문제팩을 문제지/해설지 양식으로 출력합니다.</p></div><div class='nav'><a class='btn secondary' href='/upload'>자료 업로드</a><a class='btn secondary' href='/'>홈</a></div></section>
 <section class='card'><form method='get' action='/sources/manage'><label>과목 필터</label><input name='subject' value='{escape(subject)}' placeholder='예: CRE'/><label>유형 필터</label><select name='source_type'><option value='' {'selected' if not source_type else ''}>전체 유형</option>{_options(source_type)}</select><label>액션 키</label><input name='action_key' type='password' value='{escape(action_key)}' placeholder='처음 한 번 입력하면 자동 저장'/><div class='keybox'><span class='key-status' data-key-status></span><button class='btn secondary' type='button' data-clear-key>저장된 키 지우기</button></div><div class='actions'><button type='submit'>적용</button><a class='btn secondary' href='/status?subject={escape(subject)}'>상태판/매핑</a><a class='btn secondary' href='/sources/manage?action_key={escape(action_key)}'>필터 초기화</a></div></form></section>
-<section class='card' style='margin-top:16px;overflow:auto'><form method='post' onsubmit="const checked=document.querySelectorAll('[data-source-check]:checked').length; const submitter=event.submitter; if(!checked && !submitter?.value){{alert('대상 자료를 선택하세요.'); return false;}} if(submitter?.dataset.action==='rename'){{const name=this.querySelector('[name=new_name]').value.trim(); if(!name){{alert('새 표시 파일명을 입력하세요.'); return false;}} return confirm((checked || 1)+'개 자료의 표시 파일명을 변경할까요?');}} return confirm((checked || 1)+'개 자료를 삭제할까요?');"><input type='hidden' name='action_key' value='{escape(action_key)}'/><input type='hidden' name='subject' value='{escape(subject)}'/><input type='hidden' name='source_type' value='{escape(source_type)}'/><div class='actions' style='justify-content:space-between;align-items:center;margin-top:0;margin-bottom:12px'><label style='margin:0;display:flex;gap:8px;align-items:center'><input type='checkbox' id='selectAllSources' onclick="document.querySelectorAll('[data-source-check]').forEach(cb=>cb.checked=this.checked)"/> 전체 선택</label><div class='renamebar'><div><label style='margin:0 0 6px'>선택 파일명 변경</label><input name='new_name' placeholder='새 표시 파일명. 여러 개면 {{n}} 사용 가능'/><div class='hint'>예: 전재설 Week{{n}} 강의자료</div></div><div><label style='margin:0 0 6px'>변경 대상</label><select name='rename_target'><option value='title'>제목만</option><option value='original_name'>파일명 표시만</option><option value='both'>제목+파일명 표시</option></select></div><button class='btn secondary' type='submit' data-action='rename' formaction='/sources/rename-batch'>선택 파일명 변경</button><button class='danger' type='submit' data-action='delete' formaction='/sources/delete-batch'>선택 삭제</button></div></div><table><thead><tr><th>선택</th><th>과목</th><th>유형</th><th>제목/source_id</th><th>파일</th><th>생성일</th><th>작업</th></tr></thead><tbody>{table_rows}</tbody></table></form></section>""",
+<section class='card' style='margin-top:16px;overflow:auto'><form method='post' onsubmit="const checked=document.querySelectorAll('[data-source-check]:checked').length; const submitter=event.submitter; const action=submitter?.dataset.action||''; if(!checked && !submitter?.value){{alert('대상 자료를 선택하세요.'); return false;}} if(action.startsWith('print')){{return true;}} if(action==='rename'){{const name=this.querySelector('[name=new_name]').value.trim(); if(!name){{alert('새 표시 파일명을 입력하세요.'); return false;}} return confirm((checked || 1)+'개 자료의 표시 파일명을 변경할까요?');}} return confirm((checked || 1)+'개 자료를 삭제할까요?');"><input type='hidden' name='action_key' value='{escape(action_key)}'/><input type='hidden' name='subject' value='{escape(subject)}'/><input type='hidden' name='source_type' value='{escape(source_type)}'/><div class='pdfbar'><span class='label'>PDF 출력</span><button class='btn secondary' type='submit' data-action='print-docs' formaction='/sources/print-bundle' formtarget='_blank'>선택 문서 통합 PDF</button><button class='btn secondary' type='submit' data-action='print-questions' formaction='/sources/problem-packs/print?mode=questions' formtarget='_blank'>선택 문제지 PDF</button><button class='btn secondary' type='submit' data-action='print-solutions' formaction='/sources/problem-packs/print?mode=solutions' formtarget='_blank'>선택 해설지 PDF</button><span class='hint'>브라우저 인쇄 화면에서 PDF로 저장합니다.</span></div><div class='actions' style='justify-content:space-between;align-items:center;margin-top:0;margin-bottom:12px'><label style='margin:0;display:flex;gap:8px;align-items:center'><input type='checkbox' id='selectAllSources' onclick="document.querySelectorAll('[data-source-check]').forEach(cb=>cb.checked=this.checked)"/> 전체 선택</label><div class='renamebar'><div><label style='margin:0 0 6px'>선택 파일명 변경</label><input name='new_name' placeholder='새 표시 파일명. 여러 개면 {{n}} 사용 가능'/><div class='hint'>예: 전재설 Week{{n}} 강의자료</div></div><div><label style='margin:0 0 6px'>변경 대상</label><select name='rename_target'><option value='title'>제목만</option><option value='original_name'>파일명 표시만</option><option value='both'>제목+파일명 표시</option></select></div><button class='btn secondary' type='submit' data-action='rename' formaction='/sources/rename-batch'>선택 파일명 변경</button><button class='danger' type='submit' data-action='delete' formaction='/sources/delete-batch'>선택 삭제</button></div></div><table><thead><tr><th>선택</th><th>과목</th><th>유형</th><th>제목/source_id</th><th>파일</th><th>생성일</th><th>작업</th></tr></thead><tbody>{table_rows}</tbody></table></form></section>""",
     )
+
+
+@app.post("/sources/print-bundle", response_class=HTMLResponse)
+def print_sources_bundle_endpoint(action_key: str = Form(default=""), source_ids: Optional[List[str]] = Form(default=None)):
+    if not _is_authorized(action_key=action_key):
+        raise HTTPException(status_code=401, detail="Invalid action key")
+    ids = _selected_ids(source_ids)
+    if not ids:
+        return _print_shell("통합 PDF 인쇄", "<section class='print-doc'><h1>선택된 자료가 없습니다</h1><p>파일 관리에서 자료를 선택하세요.</p></section>")
+    parts = []
+    skipped = []
+    for idx, source_id in enumerate(ids, 1):
+        source = get_source(source_id)
+        if source and source.get("source_type") == "problem_pack":
+            skipped.append(source_id)
+            continue
+        parts.append(_source_print_html(source_id, idx))
+    if skipped:
+        parts.append("<section class='print-doc'><h1>문제팩 출력 안내</h1><p>선택한 문제팩은 이 통합 문서 출력에서 제외했습니다. 문제팩은 파일 관리의 ‘선택 문제지 PDF’ 또는 ‘선택 해설지 PDF’를 사용하세요.</p><p>제외 source_id: " + ", ".join(f"<code>{escape(x)}</code>" for x in skipped) + "</p></section>")
+    if not parts:
+        parts.append("<section class='print-doc'><h1>출력 가능한 문서가 없습니다</h1><p>정리본, 전사본, 계산기 문서 등 문서형 자료를 선택하세요.</p></section>")
+    return _print_shell("통합 PDF 인쇄", "".join(parts), f"선택 {len(ids)}개 자료")
+
+
+@app.post("/sources/problem-packs/print", response_class=HTMLResponse)
+def print_problem_packs_endpoint(mode: str = Query(default="questions"), action_key: str = Form(default=""), source_ids: Optional[List[str]] = Form(default=None)):
+    if not _is_authorized(action_key=action_key):
+        raise HTTPException(status_code=401, detail="Invalid action key")
+    mode = "solutions" if mode in {"solutions", "solution", "answers"} else "questions"
+    ids = _selected_ids(source_ids)
+    packs = []
+    for source_id in ids:
+        pack = _pack_for_source_id(source_id)
+        if pack:
+            packs.append(pack)
+    title = "SolvePad 문제지 PDF" if mode == "questions" else "SolvePad 해설지 PDF"
+    if not packs:
+        return _print_shell(title, "<section class='paper-pack'><h1>선택된 문제팩이 없습니다</h1><p>파일 관리에서 problem_pack 유형을 선택하세요.</p></section>")
+    body = "".join(_problem_pack_print_html(pack, mode, idx) for idx, pack in enumerate(packs, 1))
+    return _print_shell(title, body, f"문제팩 {len(packs)}개")
 
 
 @app.get("/sources/{source_id}")
