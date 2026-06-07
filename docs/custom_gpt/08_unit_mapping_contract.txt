@@ -39,6 +39,27 @@ GPT 절차:
 9. 강의자료 기준 단원에 연결되지 않는 자료는 unmapped에 넣는다.
 10. 결과를 saveUnitMap Action으로 저장한다.
 
+
+
+saveUnitMap Action payload 계약:
+
+{
+  "title": "과목명 단원 매핑",
+  "source_ids": ["src-..."],
+  "unit_map": {
+    "schemaVersion": "lecturenote.unitMap.v2",
+    "mappingBasis": "lecture_slides",
+    "units": [],
+    "unmapped": [],
+    "extensionOnly": []
+  },
+  "created_by": "gpt"
+}
+
+주의:
+- GPT Actions에서는 `map` 필드를 사용하지 않는다.
+- 단원 매핑 본문은 반드시 `unit_map`에 넣는다.
+
 Unit Map JSON 계약:
 
 {

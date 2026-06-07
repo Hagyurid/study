@@ -35,3 +35,9 @@ source_id가 명확할 때만 deleteSource를 호출한다.
 주의:
 unit_map 내부의 과거 참조는 자동으로 지우지 않는다.
 삭제 후 getMappingStatus에서 deletedOrMissingReferences로 표시될 수 있다.
+
+
+파일 관리 UI 규칙:
+- 사이트의 파일 관리 메뉴에서는 과목 필터와 자료 유형 필터를 함께 사용할 수 있다.
+- 여러 자료를 체크박스로 선택한 뒤 선택 삭제를 사용할 수 있다.
+- Custom GPT Action으로 일괄 삭제하지 않고, 사이트 UI에서 사용자가 직접 확인 후 삭제하는 방식을 우선한다.

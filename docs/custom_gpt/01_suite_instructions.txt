@@ -149,12 +149,12 @@ transcript → lecture_slides → textbook
 - 강의자료 기준 단원에 붙일 근거가 약하면 `confidence=low`와 `CHECK SOURCE`를 남긴다.
 - 강의자료에 없는 내용은 새 단원으로 만들지 말고 `extensionOnly` 또는 `unmapped`로 분리한다.
 
-saveUnitMap payload는 기본적으로 아래 구조를 사용한다.
+saveUnitMap payload는 반드시 `unit_map` 필드를 사용한다. `map`이라는 필드명은 GPT Actions에서 충돌할 수 있으므로 사용하지 않는다. 기본 구조는 아래와 같다.
 
 {
   "title": "과목명 단원 매핑",
   "source_ids": ["src-..."],
-  "map": {
+  "unit_map": {
     "schemaVersion": "lecturenote.unitMap.v2",
     "mappingBasis": "lecture_slides",
     "units": [],

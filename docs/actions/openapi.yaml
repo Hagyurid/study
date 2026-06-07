@@ -135,6 +135,7 @@ paths:
               type: object
               required:
                 - title
+                - unit_map
               properties:
                 title:
                   type: string
@@ -142,19 +143,9 @@ paths:
                   type: array
                   items:
                     type: string
-                sourceIds:
-                  type: array
-                  items:
-                    type: string
-                map:
-                  type: object
-                mapping:
-                  type: object
-                map_json:
+                unit_map:
                   type: object
                 created_by:
-                  type: string
-                createdBy:
                   type: string
       responses:
         "200":

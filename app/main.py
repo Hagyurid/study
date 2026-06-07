@@ -40,7 +40,7 @@ from app.modules.prgm_engine import generate_txt_files, validate_blueprint
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "static"
 
-app = FastAPI(title="LectureNote Suite", version="2.2.8")
+app = FastAPI(title="LectureNote Suite", version="2.2.9")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"], allow_credentials=False)
 app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
 init_db()
@@ -447,7 +447,7 @@ def _markdown_to_docx_bytes(title: str, markdown: str) -> BytesIO:
 
 @app.get("/health")
 def health():
-    return {"ok": True, "service": "lecturenote-suite", "version": "2.2.8"}
+    return {"ok": True, "service": "lecturenote-suite", "version": "2.2.9"}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -593,9 +593,12 @@ def external_notes_endpoint(subject: str = Query(default="")):
 
 
 @app.get("/sources/manage", response_class=HTMLResponse)
-def manage_sources_page(subject: str = Query(default=""), action_key: str = Query(default="")):
+def manage_sources_page(subject: str = Query(default=""), source_type: str = Query(default=""), action_key: str = Query(default="")):
+    valid_types = {value for value, _label in SOURCE_TYPES}
+    if source_type and source_type not in valid_types:
+        source_type = ""
     rows = []
-    for s in list_sources(subject=subject):
+    for s in list_sources(source_type=source_type, subject=subject):
         raw_sid = s.get("id", "")
         sid = escape(raw_sid)
         rows.append(
@@ -612,9 +615,9 @@ def manage_sources_page(subject: str = Query(default=""), action_key: str = Quer
     table_rows = "\n".join(rows) or "<tr><td colspan='7' class='muted'>업로드된 자료가 없습니다.</td></tr>"
     return _page(
         "업로드 파일 관리",
-        f"""<section class='top'><div><h1>업로드 파일 관리</h1><p>업로드한 자료를 과목별로 확인하고 삭제할 수 있습니다.</p></div><div class='nav'><a class='btn secondary' href='/upload'>자료 업로드</a><a class='btn secondary' href='/'>홈</a></div></section>
-<section class='card'><form method='get' action='/sources/manage'><label>과목 필터</label><input name='subject' value='{escape(subject)}' placeholder='예: CRE'/><label>액션 키</label><input name='action_key' type='password' value='{escape(action_key)}' placeholder='처음 한 번 입력하면 자동 저장'/><div class='keybox'><span class='key-status' data-key-status></span><button class='btn secondary' type='button' data-clear-key>저장된 키 지우기</button></div><div class='actions'><button type='submit'>적용</button><a class='btn secondary' href='/status?subject={escape(subject)}'>상태판/매핑</a></div></form></section>
-<section class='card' style='margin-top:16px;overflow:auto'><form action='/sources/delete-batch' method='post' onsubmit="const n=document.querySelectorAll('[data-source-check]:checked').length; if(!n && !event.submitter?.value){{alert('삭제할 자료를 선택하세요.'); return false;}} return confirm((n || 1)+'개 자료를 삭제할까요?');"><input type='hidden' name='action_key' value='{escape(action_key)}'/><input type='hidden' name='subject' value='{escape(subject)}'/><div class='actions' style='justify-content:space-between;align-items:center;margin-top:0;margin-bottom:12px'><label style='margin:0;display:flex;gap:8px;align-items:center'><input type='checkbox' id='selectAllSources' onclick="document.querySelectorAll('[data-source-check]').forEach(cb=>cb.checked=this.checked)"/> 전체 선택</label><button class='danger' type='submit'>선택 삭제</button></div><table><thead><tr><th>선택</th><th>과목</th><th>유형</th><th>제목/source_id</th><th>파일</th><th>생성일</th><th>작업</th></tr></thead><tbody>{table_rows}</tbody></table></form></section>""",
+        f"""<section class='top'><div><h1>업로드 파일 관리</h1><p>업로드한 자료를 과목과 유형별로 필터링하고, 여러 자료를 선택해 한 번에 삭제할 수 있습니다.</p></div><div class='nav'><a class='btn secondary' href='/upload'>자료 업로드</a><a class='btn secondary' href='/'>홈</a></div></section>
+<section class='card'><form method='get' action='/sources/manage'><label>과목 필터</label><input name='subject' value='{escape(subject)}' placeholder='예: CRE'/><label>유형 필터</label><select name='source_type'><option value='' {'selected' if not source_type else ''}>전체 유형</option>{_options(source_type)}</select><label>액션 키</label><input name='action_key' type='password' value='{escape(action_key)}' placeholder='처음 한 번 입력하면 자동 저장'/><div class='keybox'><span class='key-status' data-key-status></span><button class='btn secondary' type='button' data-clear-key>저장된 키 지우기</button></div><div class='actions'><button type='submit'>적용</button><a class='btn secondary' href='/status?subject={escape(subject)}'>상태판/매핑</a><a class='btn secondary' href='/sources/manage?action_key={escape(action_key)}'>필터 초기화</a></div></form></section>
+<section class='card' style='margin-top:16px;overflow:auto'><form action='/sources/delete-batch' method='post' onsubmit="const n=document.querySelectorAll('[data-source-check]:checked').length; if(!n && !event.submitter?.value){{alert('삭제할 자료를 선택하세요.'); return false;}} return confirm((n || 1)+'개 자료를 삭제할까요?');"><input type='hidden' name='action_key' value='{escape(action_key)}'/><input type='hidden' name='subject' value='{escape(subject)}'/><input type='hidden' name='source_type' value='{escape(source_type)}'/><div class='actions' style='justify-content:space-between;align-items:center;margin-top:0;margin-bottom:12px'><label style='margin:0;display:flex;gap:8px;align-items:center'><input type='checkbox' id='selectAllSources' onclick="document.querySelectorAll('[data-source-check]').forEach(cb=>cb.checked=this.checked)"/> 전체 선택</label><button class='danger' type='submit'>선택 삭제</button></div><table><thead><tr><th>선택</th><th>과목</th><th>유형</th><th>제목/source_id</th><th>파일</th><th>생성일</th><th>작업</th></tr></thead><tbody>{table_rows}</tbody></table></form></section>""",
     )
 
 
@@ -655,7 +658,7 @@ def delete_source_form_endpoint(source_id: str, action_key: str = Form(default="
 
 
 @app.post("/sources/delete-batch")
-def delete_sources_batch_endpoint(action_key: str = Form(default=""), subject: str = Form(default=""), source_ids: Optional[List[str]] = Form(default=None)):
+def delete_sources_batch_endpoint(action_key: str = Form(default=""), subject: str = Form(default=""), source_type: str = Form(default=""), source_ids: Optional[List[str]] = Form(default=None)):
     if not _is_authorized(action_key=action_key):
         raise HTTPException(status_code=401, detail="Invalid action key")
     ids = []
@@ -666,7 +669,7 @@ def delete_sources_batch_endpoint(action_key: str = Form(default=""), subject: s
             seen.add(clean)
             ids.append(clean)
     if not ids:
-        return _page("삭제할 자료 없음", f"<section class='top'><div><h1>삭제할 자료가 없습니다</h1><p>파일 관리에서 삭제할 자료를 먼저 선택하세요.</p></div><div class='nav'><a class='btn' href='/sources/manage?action_key={escape(action_key)}&subject={escape(subject)}'>파일 관리로 돌아가기</a></div></section>")
+        return _page("삭제할 자료 없음", f"<section class='top'><div><h1>삭제할 자료가 없습니다</h1><p>파일 관리에서 삭제할 자료를 먼저 선택하세요.</p></div><div class='nav'><a class='btn' href='/sources/manage?action_key={escape(action_key)}&subject={escape(subject)}&source_type={escape(source_type)}'>파일 관리로 돌아가기</a></div></section>")
     deleted = []
     missing = []
     for sid in ids:
@@ -691,7 +694,7 @@ def delete_sources_batch_endpoint(action_key: str = Form(default=""), subject: s
         missing_html = "<p class='hint'>찾을 수 없는 source_id: " + ", ".join(f"<code>{escape(x)}</code>" for x in missing) + "</p>"
     return _page(
         "선택 삭제 완료",
-        f"<section class='top'><div><h1>선택 삭제 완료</h1><p>{len(deleted)}개 자료를 삭제했습니다.</p>{missing_html}</div><div class='nav'><a class='btn' href='/sources/manage?action_key={escape(action_key)}&subject={escape(subject)}'>파일 관리로 돌아가기</a><a class='btn secondary' href='/'>홈</a></div></section><section class='card'><table><thead><tr><th>제목</th><th>source_id</th><th>삭제 chunks</th><th>파일 삭제</th></tr></thead><tbody>{rows}</tbody></table></section>",
+        f"<section class='top'><div><h1>선택 삭제 완료</h1><p>{len(deleted)}개 자료를 삭제했습니다.</p>{missing_html}</div><div class='nav'><a class='btn' href='/sources/manage?action_key={escape(action_key)}&subject={escape(subject)}&source_type={escape(source_type)}'>파일 관리로 돌아가기</a><a class='btn secondary' href='/'>홈</a></div></section><section class='card'><table><thead><tr><th>제목</th><th>source_id</th><th>삭제 chunks</th><th>파일 삭제</th></tr></thead><tbody>{rows}</tbody></table></section>",
     )
 
 
@@ -818,9 +821,17 @@ def save_unit_map_endpoint(payload: dict):
         source_ids = [source_ids]
     if not isinstance(source_ids, list):
         source_ids = []
-    map_json = payload.get("map") or payload.get("map_json") or payload.get("mapJson") or payload.get("mapping")
+    map_json = (
+        payload.get("unit_map")
+        or payload.get("unitMap")
+        or payload.get("unit_map_json")
+        or payload.get("map")
+        or payload.get("map_json")
+        or payload.get("mapJson")
+        or payload.get("mapping")
+    )
     if not isinstance(map_json, dict):
-        raise HTTPException(status_code=422, detail="Unit map payload must include object field: map")
+        raise HTTPException(status_code=422, detail="Unit map payload must include object field: unit_map")
     created_by = str(payload.get("created_by") or payload.get("createdBy") or "gpt")
     return save_unit_map(title, source_ids, map_json, created_by)
 

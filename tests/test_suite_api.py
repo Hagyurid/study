@@ -104,7 +104,7 @@ def test_unit_map_flow_and_mapped_sources():
     saved = client.post("/unit-maps", json={
         "title": "CRE Unit Map",
         "source_ids": [source_id],
-        "map": {
+        "unit_map": {
             "schemaVersion": "lecturenote.unitMap.v1",
             "sources": {"textbook": [source_id]},
             "units": [
@@ -382,7 +382,12 @@ def test_v15_menu_key_ui():
     manage = client.get("/sources/manage")
     assert manage.status_code == 200
     assert "저장된 키 지우기" in manage.text
+    assert "유형 필터" in manage.text
+    assert "전체 유형" in manage.text
 
+    manage_filtered = client.get("/sources/manage?source_type=lecture_slides")
+    assert manage_filtered.status_code == 200
+    assert "lecture_slides" in manage_filtered.text
 
 
 def test_calculator_generate_manual_and_replace_flow():

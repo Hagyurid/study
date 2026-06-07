@@ -492,3 +492,11 @@ Study Note export now converts Markdown tables into real DOCX/print tables. Stud
 - `전체 선택`과 `선택 삭제` 버튼을 추가했습니다.
 - 개별 행의 `삭제` 버튼은 유지하되, 동일한 batch delete 처리 흐름을 사용합니다.
 - 서버 버전: `2.2.8`
+
+## v22.9 unit map action and file type filter
+
+- `saveUnitMap` Action now uses `unit_map` as the payload field to avoid Action schema conflicts with `map`.
+- Server still accepts older payload aliases for compatibility, but Custom GPT instructions now require `unit_map`.
+- 파일 관리 화면(`/sources/manage`)에 자료 유형 필터를 추가했습니다.
+- 과목 필터 + 유형 필터 + 선택 일괄 삭제를 함께 사용할 수 있습니다.
+- 서버 버전: `2.2.9`
