@@ -471,16 +471,22 @@ def test_calculator_blueprint_json_fallback_and_open_url():
     assert fetched.json()["blueprint"]["files"][0]["name"] == "MAIN"
 
 
-def test_note_version_replace_latest_flow():
+def test_note_version_replace_latest_without_source_id_is_safe_append():
     v1 = client.post("/notes/versions", json={"title": "Replace Note", "content_markdown": "# old", "subject": "CRE"})
     assert v1.status_code == 200
     series_id = v1.json()["series_id"]
+    first_source_id = v1.json()["source_id"]
     v2 = client.post("/notes/versions", json={"title": "Replace Note", "content_markdown": "# new", "subject": "CRE", "series_id": series_id, "replace_latest": True})
     assert v2.status_code == 200
-    assert v2.json()["version"] == 1
+    assert v2.json()["version"] == 2
+    assert v2.json()["source_id"] != first_source_id
+    assert v2.json()["replace_latest_ignored"] is True
     latest = client.get(f"/notes/versions/{series_id}/latest")
     assert latest.status_code == 200
     assert latest.json()["content_markdown"] == "# new"
+    first = client.get(f"/study/notes/{first_source_id}")
+    assert first.status_code == 200
+    assert "# old" in first.json()["markdown"]
 
 
 
@@ -566,9 +572,18 @@ def test_study_note_editor_and_exam_cram_flow():
     assert updated.status_code == 200
     assert updated.json()["chunk_count"] >= 1
 
+    versions = client.get(f"/study/notes/{source_id}/versions")
+    assert versions.status_code == 200
+    assert len(versions.json()["versions"]) >= 2
+    initial = [v for v in versions.json()["versions"] if v["version"] == 1][0]
+    restored = client.post(f"/study/notes/{source_id}/restore", json={"version_id": initial["id"], "change_summary": "restore test"})
+    assert restored.status_code == 200
+    assert "Unit 1" in restored.json()["content_markdown"]
+    assert restored.json()["version"] >= 3
+
     md = client.get(f"/study/notes/{source_id}/download.md")
     assert md.status_code == 200
-    assert b"Updated" in md.content
+    assert b"Unit 1" in md.content
 
     docx = client.get(f"/study/notes/{source_id}/download.docx")
     assert docx.status_code == 200
@@ -859,7 +874,8 @@ def test_calculator_project_program_and_analysis_are_searchable_sources():
 
 def test_print_and_docx_image_output_rules_are_left_aligned_sixty_percent():
     css = Path("static/study/styles.css").read_text(encoding="utf-8")
-    assert ".doc .image-card{width:60%;margin:18px 0;text-align:left}" in css
+    assert ".doc .image-card{width:60%;margin:18px 0;padding:10px" in css
+    assert "position:relative;text-align:left}" in css
     assert ".doc .image-card figcaption{text-align:left}" in css
 
     created = client.post('/study/notes', json={
@@ -873,6 +889,22 @@ def test_print_and_docx_image_output_rules_are_left_aligned_sixty_percent():
     printed = client.get(f"/study/notes/{created.json()['source_id']}/print")
     assert printed.status_code == 200
     assert "figure.image-card{width:60%;margin:18px 0;text-align:left}" in printed.text
+
+
+def test_study_note_image_scale_markdown_print_and_docx():
+    created = client.post('/study/notes', json={
+        'title': 'Image Scale Note',
+        'subject': 'CRE',
+        'source_type': 'generated_note',
+        'content_markdown': '# 이미지\n\n![샘플](data:image/png;base64,iVBORw0KGgo=){width=80%}',
+        'replace_latest': False
+    })
+    assert created.status_code == 200
+    printed = client.get(f"/study/notes/{created.json()['source_id']}/print")
+    assert printed.status_code == 200
+    assert "style='width:80%;'" in printed.text
+    docx = client.get(f"/study/notes/{created.json()['source_id']}/download.docx")
+    assert docx.status_code == 200
 
 
 def test_artifact_storage_creates_source_rows_not_only_private_tables():
@@ -916,3 +948,84 @@ def test_artifact_storage_creates_source_rows_not_only_private_tables():
         res = client.get(f"/sources?subject=STORE&source_type={source_type}")
         assert res.status_code == 200
         assert res.json()["sources"], source_type
+
+
+def test_study_note_same_series_does_not_replace_without_replace_source_id():
+    first = client.post("/study/notes", json={
+        "title": "전재설 9-1 정리본",
+        "subject": "전재설",
+        "source_type": "generated_note",
+        "series_id": "전재설-final-notes-2026-rechecked",
+        "content_markdown": "# 9-1\n\nold",
+    })
+    assert first.status_code == 200
+    first_id = first.json()["source_id"]
+
+    second = client.post("/study/notes", json={
+        "title": "전재설 10-1 정리본",
+        "subject": "전재설",
+        "source_type": "generated_note",
+        "series_id": "전재설-final-notes-2026-rechecked",
+        "content_markdown": "# 10-1\n\nnew",
+        "replace_latest": True,
+    })
+    assert second.status_code == 200
+    assert second.json()["source_id"] != first_id
+    assert second.json()["replace_latest_ignored"] is True
+
+    fetched = client.get(f"/study/notes/{first_id}")
+    assert fetched.status_code == 200
+    assert "9-1" in fetched.json()["markdown"]
+
+
+def test_study_note_replace_source_id_updates_existing_note():
+    created = client.post("/study/notes", json={
+        "title": "Replace Target",
+        "subject": "SAFE",
+        "source_type": "generated_note",
+        "content_markdown": "# before",
+    })
+    assert created.status_code == 200
+    source_id = created.json()["source_id"]
+
+    replaced = client.post("/study/notes", json={
+        "title": "Replace Target Updated",
+        "subject": "SAFE",
+        "source_type": "generated_note",
+        "content_markdown": "# after",
+        "replace_latest": True,
+        "replace_source_id": source_id,
+    })
+    assert replaced.status_code == 200
+    assert replaced.json()["source_id"] == source_id
+    assert replaced.json()["replaced_existing_source"] is True
+
+    fetched = client.get(f"/study/notes/{source_id}")
+    assert fetched.status_code == 200
+    assert "after" in fetched.json()["markdown"]
+
+
+def test_study_note_unit_number_creates_unit_specific_series_id():
+    first = client.post("/study/notes", json={
+        "title": "전재설 Photolithography 정리본",
+        "subject": "전재설",
+        "source_type": "generated_note",
+        "series_id": "전재설-final-notes-2026-rechecked",
+        "unitNumber": "11-1/12-2",
+        "unitTitle": "Photolithography",
+        "content_markdown": "# Photo",
+    })
+    second = client.post("/study/notes", json={
+        "title": "전재설 Film Deposition 정리본",
+        "subject": "전재설",
+        "source_type": "generated_note",
+        "series_id": "전재설-final-notes-2026-rechecked",
+        "unitNumber": "13-1",
+        "unitTitle": "Film Deposition",
+        "content_markdown": "# Film",
+    })
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["series_id"] != second.json()["series_id"]
+    assert "11-1" in first.json()["series_id"]
+    assert "13-1" in second.json()["series_id"]

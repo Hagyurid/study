@@ -1,4 +1,5 @@
 import json
+import re
 import secrets
 import sqlite3
 from datetime import UTC, datetime
@@ -228,6 +229,9 @@ def init_db() -> None:
         _ensure_column(db, "calculator_blueprints", "source_id", "TEXT NOT NULL DEFAULT ''")
         _ensure_column(db, "calculator_blueprints", "program_source_ids", "TEXT NOT NULL DEFAULT '[]'")
         _ensure_column(db, "calculator_blueprints", "analysis_source_id", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(db, "note_versions", "doc_key", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(db, "note_versions", "unit_number", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(db, "note_versions", "unit_title", "TEXT NOT NULL DEFAULT ''")
 
 
 def make_id(prefix: str) -> str:
@@ -714,7 +718,7 @@ def get_source_markdown(source_id: str) -> Optional[Dict[str, Any]]:
     return {"source": source, "markdown": "\n\n".join(row["text"] for row in rows), "note_version": None}
 
 
-def update_source_markdown(source_id: str, content_markdown: str, title: str = "", change_summary: str = "edited") -> Dict[str, Any]:
+def update_source_markdown(source_id: str, content_markdown: str, title: str = "", change_summary: str = "edited", based_on_version: Optional[int] = None) -> Dict[str, Any]:
     current = get_source_markdown(source_id)
     if not current:
         return {}
@@ -722,6 +726,9 @@ def update_source_markdown(source_id: str, content_markdown: str, title: str = "
     new_title = (title or source.get("title") or "Untitled").strip()
     ts = now()
     chunks = chunk_text(content_markdown)
+    new_version = None
+    version_id = ""
+    series_id = ""
     with conn() as db:
         db.execute("UPDATE sources SET title=?, size_bytes=?, extract_status=? WHERE id=?", (new_title, len(content_markdown.encode("utf-8")), "markdown_edited", source_id))
         db.execute("DELETE FROM source_chunks WHERE source_id=?", (source_id,))
@@ -735,11 +742,67 @@ def update_source_markdown(source_id: str, content_markdown: str, title: str = "
             )
         note = db.execute("SELECT * FROM note_versions WHERE source_id=? ORDER BY version DESC LIMIT 1", (source_id,)).fetchone()
         if note:
+            series_id = note["series_id"] or source_id
+            if based_on_version is None:
+                based_on_version = int(note["version"] or 0)
+            row = db.execute("SELECT MAX(version) AS max_version FROM note_versions WHERE series_id=?", (series_id,)).fetchone()
+            new_version = int(row["max_version"] or 0) + 1
+            version_id = make_id("ver")
             db.execute(
-                "UPDATE note_versions SET title=?, content_markdown=?, change_summary=?, created_at=? WHERE id=?",
-                (new_title, content_markdown, change_summary, ts, note["id"]),
+                """
+                INSERT INTO note_versions(id,series_id,title,version,source_id,source_type,content_markdown,change_summary,based_on_version,created_at,doc_key,unit_number,unit_title)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    version_id,
+                    series_id,
+                    new_title,
+                    new_version,
+                    source_id,
+                    source.get("source_type") or note["source_type"] or "generated_note",
+                    content_markdown,
+                    change_summary,
+                    based_on_version,
+                    ts,
+                    note["doc_key"] if "doc_key" in note.keys() else "",
+                    note["unit_number"] if "unit_number" in note.keys() else "",
+                    note["unit_title"] if "unit_title" in note.keys() else "",
+                ),
             )
-    return {"ok": True, "source_id": source_id, "title": new_title, "chunk_count": len(chunks), "updated_at": ts}
+    return {"ok": True, "source_id": source_id, "title": new_title, "chunk_count": len(chunks), "updated_at": ts, "note_version_id": version_id, "series_id": series_id, "version": new_version}
+
+
+def list_note_source_versions(source_id: str) -> List[Dict[str, Any]]:
+    with conn() as db:
+        seed = db.execute("SELECT series_id FROM note_versions WHERE source_id=? ORDER BY version DESC LIMIT 1", (source_id,)).fetchone()
+        if not seed:
+            return []
+        rows = db.execute(
+            "SELECT id,series_id,title,version,source_id,source_type,change_summary,based_on_version,created_at,doc_key,unit_number,unit_title FROM note_versions WHERE series_id=? ORDER BY version DESC",
+            (seed["series_id"],),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_note_version(version_id: str) -> Optional[Dict[str, Any]]:
+    with conn() as db:
+        row = db.execute("SELECT * FROM note_versions WHERE id=?", (version_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def restore_note_source_version(source_id: str, version_id: str, change_summary: str = "restored previous version") -> Dict[str, Any]:
+    target = get_note_version(version_id)
+    if not target:
+        return {}
+    current = get_source_markdown(source_id)
+    if not current:
+        return {}
+    latest = current.get("note_version") or {}
+    if target.get("series_id") != latest.get("series_id"):
+        return {}
+    title = target.get("title") or (current.get("source") or {}).get("title") or "Untitled"
+    summary = change_summary or f"restored from v{target.get('version')}"
+    return update_source_markdown(source_id, target.get("content_markdown") or "", title, summary, int(latest.get("version") or 0) or None)
 
 
 def list_study_notes(subject: str = "", source_type: str = "") -> List[Dict[str, Any]]:
@@ -1302,6 +1365,25 @@ def export_project_note_as_source(project_id: str, title: str = "") -> Dict[str,
     return save_text_source(project_title, "generated_note", "\n".join(parts), f"{project_id}_generated_note.md")
 
 
+def _safe_note_part(value: str, fallback: str = "note") -> str:
+    text = str(value or "").strip().lower()
+    text = re.sub(r"[^0-9a-zA-Z가-힣._-]+", "-", text).strip("-._")
+    return text[:80] or fallback
+
+
+def make_note_doc_key(subject: str = "", unit_number: str = "", unit_title: str = "", title: str = "") -> str:
+    parts = [subject, unit_number, unit_title or title]
+    normalized = [_safe_note_part(part, "") for part in parts if str(part or "").strip()]
+    return "-".join(part for part in normalized if part) or make_id("note")
+
+
+def _note_original_name(subject: str, unit_number: str, unit_title: str, title: str, series_id: str, version: int) -> str:
+    base = make_note_doc_key(subject, unit_number, unit_title, title)
+    if base.startswith("note-") and series_id:
+        base = _safe_note_part(series_id, "note")
+    return f"{base}_v{version}.md"
+
+
 def save_note_version(
     title: str,
     content_markdown: str,
@@ -1311,31 +1393,40 @@ def save_note_version(
     based_on_version: Optional[int] = None,
     subject: str = "",
     replace_latest: bool = False,
+    replace_source_id: str = "",
+    doc_key: str = "",
+    unit_number: str = "",
+    unit_title: str = "",
 ) -> Dict[str, Any]:
-    series_id = series_id or make_id("note")
-    if replace_latest and series_id:
-        latest = get_latest_note_version(series_id)
-        if latest:
-            try:
-                delete_source(latest.get("source_id", ""))
-            except Exception:
-                pass
-            with conn() as db:
-                db.execute("DELETE FROM note_versions WHERE id=?", (latest.get("id"),))
+    replace_source_id = (replace_source_id or "").strip()
+    doc_key = (doc_key or "").strip()
+    unit_number = str(unit_number or "").strip()
+    unit_title = str(unit_title or "").strip()
+    if replace_source_id:
+        result = update_source_markdown(replace_source_id, content_markdown, title, change_summary or "replaced study note", based_on_version)
+        if result:
+            result["replace_source_id"] = replace_source_id
+            result["replaced_existing_source"] = True
+        return result
+
+    series_id = (doc_key or series_id or "").strip() or make_id("note")
+    # Safety rule: series_id is a grouping key, never an upsert key.
+    # A study note can be replaced only through update_source_markdown() with an explicit source_id.
     with conn() as db:
         row = db.execute("SELECT MAX(version) AS max_version FROM note_versions WHERE series_id=?", (series_id,)).fetchone()
         version = int(row["max_version"] or 0) + 1
-    source = save_text_source(f"{title} v{version}", source_type, content_markdown, f"{series_id}_v{version}.md", subject=subject)
+    original_name = _note_original_name(subject, unit_number, unit_title, title, series_id, version)
+    source = save_text_source(f"{title} v{version}", source_type, content_markdown, original_name, subject=subject)
     version_id = make_id("ver")
     with conn() as db:
         db.execute(
             """
-            INSERT INTO note_versions(id,series_id,title,version,source_id,source_type,content_markdown,change_summary,based_on_version,created_at)
-            VALUES(?,?,?,?,?,?,?,?,?,?)
+            INSERT INTO note_versions(id,series_id,title,version,source_id,source_type,content_markdown,change_summary,based_on_version,created_at,doc_key,unit_number,unit_title)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
-            (version_id, series_id, title, version, source["source_id"], source_type, content_markdown, change_summary, based_on_version, now()),
+            (version_id, series_id, title, version, source["source_id"], source_type, content_markdown, change_summary, based_on_version, now(), doc_key, unit_number, unit_title),
         )
-    return {**source, "note_version_id": version_id, "series_id": series_id, "version": version}
+    return {**source, "note_version_id": version_id, "series_id": series_id, "version": version, "doc_key": doc_key, "unitNumber": unit_number, "unitTitle": unit_title}
 
 
 def list_note_versions(series_id: str = "") -> List[Dict[str, Any]]:

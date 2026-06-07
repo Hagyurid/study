@@ -87,6 +87,10 @@ class NoteVersionSave(BaseModel):
     change_summary: str = ""
     based_on_version: Optional[int] = None
     replace_latest: bool = False
+    replace_source_id: str = ""
+    doc_key: str = ""
+    unitNumber: str = ""
+    unitTitle: str = ""
     auto_slide_images: bool = True
 
 
@@ -139,8 +143,12 @@ class StudyNoteSave(BaseModel):
     subject: str = ""
     source_type: str = "generated_note"
     series_id: str = ""
+    doc_key: str = ""
+    unitNumber: str = ""
+    unitTitle: str = ""
     change_summary: str = ""
-    replace_latest: bool = True
+    replace_latest: bool = False
+    replace_source_id: str = ""
     auto_slide_images: bool = True
 
 
@@ -157,5 +165,5 @@ class ExamCramSave(BaseModel):
     subject: str = ""
     series_id: str = ""
     change_summary: str = "exam cram update"
-    replace_latest: bool = True
+    replace_latest: bool = False
     auto_slide_images: bool = True

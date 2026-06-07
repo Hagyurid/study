@@ -1,9 +1,11 @@
 const $ = (id) => document.getElementById(id);
 const KEY = 'lecturenote_action_key';
 const SUBJECT = 'lecturenote_subject';
+const IMAGE_SCALE = 'lecturenote_image_scale';
 let currentSourceId = '';
 let currentSourceType = 'generated_note';
 let isRendering = false;
+let activeImageFigure = null;
 
 function actionKey() { return ($('key')?.value || '').trim(); }
 function subject() { return $('subject').value.trim(); }
@@ -24,6 +26,38 @@ function restore() {
   $('subject').value = localStorage.getItem(SUBJECT) || '';
 }
 function status(text) { $('saveState').textContent = text; }
+function normalizeImageScale(value) {
+  const n = parseInt(String(value || '').replace(/[^0-9]/g, ''), 10);
+  if ([40, 60, 80, 100].includes(n)) return String(n);
+  if (!Number.isFinite(n)) return '60';
+  if (n <= 50) return '40';
+  if (n <= 70) return '60';
+  if (n <= 90) return '80';
+  return '100';
+}
+function applyImageScale(figure, value) {
+  if (!figure) return;
+  const scale = normalizeImageScale(value);
+  figure.dataset.imageScale = scale;
+  figure.style.width = scale + '%';
+  if ($('imageScale')) $('imageScale').value = scale;
+}
+function setSelectedImageScale(value) {
+  const scale = normalizeImageScale(value);
+  localStorage.setItem(IMAGE_SCALE, scale);
+  if (!activeImageFigure || !document.contains(activeImageFigure)) {
+    status('이미지 기본 크기 ' + scale + '%');
+    return;
+  }
+  applyImageScale(activeImageFigure, scale);
+  syncMarkdownFromDocument();
+  status('이미지 크기 ' + scale + '%');
+}
+function restoreImageScale() {
+  const scale = normalizeImageScale(localStorage.getItem(IMAGE_SCALE) || '60');
+  if ($('imageScale')) $('imageScale').value = scale;
+}
+function defaultImageScale() { return normalizeImageScale(localStorage.getItem(IMAGE_SCALE) || $('imageScale')?.value || '60'); }
 function esc(value) { return String(value ?? '').replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m])); }
 function attr(value) { return esc(value).replace(/`/g, '&#96;'); }
 async function api(path, opt = {}) {
@@ -54,10 +88,11 @@ function protectMath(text) {
 }
 function restoreStash(html, stash) { return html.replace(new RegExp('\\u0000M(\\d+)\\u0000', 'g'), (_, i) => stash[Number(i)] || ''); }
 
-function imageFigureHtml(alt, src) {
+function imageFigureHtml(alt, src, scale = 60) {
   const safeAlt = attr(alt || '이미지');
   const safeSrc = attr(src || '');
-  return `<figure class="image-card" data-md-src="${safeSrc}"><button type="button" class="image-delete" contenteditable="false" aria-label="이미지 삭제">삭제</button><img alt="${safeAlt}" src="${safeSrc}" contenteditable="false"><figcaption contenteditable="true">${esc(alt || '이미지')}</figcaption></figure>`;
+  const safeScale = normalizeImageScale(scale);
+  return `<figure class="image-card" data-md-src="${safeSrc}" data-image-scale="${safeScale}" style="width:${safeScale}%"><button type="button" class="image-delete" contenteditable="false" aria-label="이미지 삭제">삭제</button><img alt="${safeAlt}" src="${safeSrc}" contenteditable="false"><figcaption contenteditable="true">${esc(alt || '이미지')}</figcaption></figure>`;
 }
 function parseSlideMarker(line) {
   const m = String(line || '').trim().match(/^\[\[SLIDE_IMAGE\s+([\s\S]*?)\]\]$/);
@@ -70,22 +105,25 @@ function parseSlideMarker(line) {
   const page = Math.max(1, parseInt(attrs.page || attrs.p || '1', 10) || 1);
   const zoom = Math.min(4, Math.max(0.5, parseFloat(attrs.zoom || '2') || 2));
   const caption = attrs.caption || attrs.label || `슬라이드 ${sourceId} p.${page}`;
+  const size = normalizeImageScale(attrs.size || attrs.scale || attrs.width || 60);
   if (!sourceId) return null;
-  return { sourceId, page, zoom, caption };
+  return { sourceId, page, zoom, caption, size };
 }
 function slideMarkerAttr(value) { return String(value ?? '').replace(/[\r\n\t]+/g, ' ').replace(/"/g, "'").trim(); }
-function slideMarkerMarkdown(sourceId, page, caption, zoom) {
+function slideMarkerMarkdown(sourceId, page, caption, zoom, size) {
   const src = slideMarkerAttr(sourceId);
   const cap = slideMarkerAttr(caption || `슬라이드 ${src} p.${page}`);
   const z = zoom ? ` zoom="${slideMarkerAttr(zoom)}"` : '';
-  return `[[SLIDE_IMAGE source_id="${src}" page="${page}" caption="${cap}"${z}]]`;
+  const scale = normalizeImageScale(size || 60);
+  return `[[SLIDE_IMAGE source_id="${src}" page="${page}" caption="${cap}"${z} size="${scale}"]]`;
 }
 function slideFigureHtml(info) {
   const safeSource = attr(info.sourceId);
   const safePage = attr(info.page || 1);
   const safeZoom = attr(info.zoom || 2);
   const safeCaption = attr(info.caption || `슬라이드 ${info.sourceId} p.${info.page || 1}`);
-  return `<figure class="image-card slide-card" data-slide-source-id="${safeSource}" data-slide-page="${safePage}" data-slide-zoom="${safeZoom}" data-slide-caption="${safeCaption}"><button type="button" class="image-delete" contenteditable="false" aria-label="슬라이드 삭제">삭제</button><div class="slide-placeholder" contenteditable="false">슬라이드 불러오는 중 · ${safeSource} p.${safePage}</div><figcaption contenteditable="true">${esc(info.caption || `슬라이드 ${info.sourceId} p.${info.page || 1}`)}</figcaption></figure>`;
+  const safeScale = normalizeImageScale(info.size || 60);
+  return `<figure class="image-card slide-card" data-slide-source-id="${safeSource}" data-slide-page="${safePage}" data-slide-zoom="${safeZoom}" data-slide-caption="${safeCaption}" data-image-scale="${safeScale}" style="width:${safeScale}%"><button type="button" class="image-delete" contenteditable="false" aria-label="슬라이드 삭제">삭제</button><div class="slide-placeholder" contenteditable="false">슬라이드 불러오는 중 · ${safeSource} p.${safePage}</div><figcaption contenteditable="true">${esc(info.caption || `슬라이드 ${info.sourceId} p.${info.page || 1}`)}</figcaption></figure>`;
 }
 async function hydrateSlideImages() {
   const cards = Array.from(document.querySelectorAll('#doc figure.slide-card'));
@@ -128,6 +166,8 @@ async function hydrateSlideImages() {
 }
 function enhanceImageCards() {
   document.querySelectorAll('#doc figure.image-card').forEach((figure) => {
+    if (!figure.dataset.imageScale) figure.dataset.imageScale = '60';
+    figure.style.width = normalizeImageScale(figure.dataset.imageScale) + '%';
     if (!figure.querySelector('.image-delete')) {
       const btn = document.createElement('button');
       btn.type = 'button';
@@ -251,9 +291,9 @@ function markdownToHtml(md) {
       blocks.push(slideFigureHtml(slideMarker));
       i += 1; continue;
     }
-    const image = line.match(/^!\[([^\]]*)\]\((.+)\)$/);
+    const image = line.match(/^!\[([^\]]*)\]\((.+)\)(?:\{(?:width|size|scale)=(\d+)%?\})?$/);
     if (image) {
-      blocks.push(imageFigureHtml(image[1] || '이미지', image[2]));
+      blocks.push(imageFigureHtml(image[1] || '이미지', image[2], image[3] || 60));
       i += 1; continue;
     }
     if (isTableRow(line) && i + 1 < lines.length && isTableSeparator(lines[i + 1])) {
@@ -328,11 +368,13 @@ function blockToMarkdown(el) {
       const sourceId = el.dataset.slideSourceId || '';
       const page = Math.max(1, parseInt(el.dataset.slidePage || '1', 10) || 1);
       const zoom = el.dataset.slideZoom || '2';
-      return sourceId ? slideMarkerMarkdown(sourceId, page, cap, zoom) : '';
+      const scale = normalizeImageScale(el.dataset.imageScale || '60');
+      return sourceId ? slideMarkerMarkdown(sourceId, page, cap, zoom, scale) : '';
     }
     const img = el.querySelector('img');
     const src = el.dataset.mdSrc || img?.src || '';
-    return src ? `![${cap}](${src})` : '';
+    const scale = normalizeImageScale(el.dataset.imageScale || '60');
+    return src ? `![${cap}](${src}){width=${scale}%}` : '';
   }
   if (tag === 'img') return `![${el.alt || '이미지'}](${el.src})`;
   if (tag === 'p' || tag === 'div') return inlineToMarkdown(el).trim();
@@ -367,11 +409,46 @@ async function saveNote() {
   } catch (e) { status('오류'); alert(e.message); }
 }
 
+async function loadNoteVersions() {
+  if (!currentSourceId) return [];
+  const data = await api('/study/notes/' + encodeURIComponent(currentSourceId) + '/versions', { headers: headers(false) });
+  return data.versions || [];
+}
+async function openVersionDialog() {
+  if (!currentSourceId) return alert('먼저 정리본을 열거나 저장하세요.');
+  try {
+    const versions = await loadNoteVersions();
+    const box = $('versionList');
+    box.innerHTML = versions.length ? '' : '<div class="version-empty">저장된 이전 버전이 없습니다.</div>';
+    for (const v of versions) {
+      const item = document.createElement('div');
+      item.className = 'version-item';
+      const dt = String(v.created_at || '').replace('T', ' ').replace('Z', '');
+      item.innerHTML = `<div><b>v${esc(v.version)}</b> <span>${esc(dt)}</span><p>${esc(v.change_summary || '변경 내용 없음')}</p></div><button type="button" class="secondary">복원</button>`;
+      item.querySelector('button').onclick = () => restoreNoteVersion(v.id, v.version);
+      box.appendChild(item);
+    }
+    $('versionDialog').showModal();
+  } catch (e) { alert(e.message); }
+}
+function closeVersionDialog() { $('versionDialog').close(); }
+async function restoreNoteVersion(versionId, versionNumber) {
+  if (!currentSourceId) return;
+  if (!confirm(`v${versionNumber} 내용으로 되돌릴까요? 현재 상태도 복원 기록으로 남습니다.`)) return;
+  try {
+    const data = await api('/study/notes/' + encodeURIComponent(currentSourceId) + '/restore', { method: 'POST', headers: headers(), body: JSON.stringify({ version_id: versionId, change_summary: `restored from v${versionNumber}` }) });
+    if (typeof data.content_markdown === 'string') await renderMarkdown(data.content_markdown);
+    closeVersionDialog();
+    status(`v${versionNumber} 복원됨`);
+    await listNotes();
+  } catch (e) { alert(e.message); }
+}
+
 function wrapRangeWithMark(range) { const mark = document.createElement('mark'); try { range.surroundContents(mark); } catch (_) { const contents = range.extractContents(); mark.appendChild(contents); range.insertNode(mark); } }
 function highlightSelection() { const sel = window.getSelection(); if (!sel || !sel.rangeCount || sel.isCollapsed) return alert('형광펜 칠할 텍스트를 먼저 드래그해서 선택하세요.'); const range = sel.getRangeAt(0); if (!$('doc').contains(range.commonAncestorContainer)) return alert('정리본 본문 안의 텍스트를 선택하세요.'); wrapRangeWithMark(range); sel.removeAllRanges(); syncMarkdownFromDocument(); }
 function clearHighlight() { document.querySelectorAll('#doc mark').forEach(mark => mark.replaceWith(...mark.childNodes)); syncMarkdownFromDocument(); }
 function insertNodeAtSelection(node) { const sel = window.getSelection(); if (sel && sel.rangeCount && $('doc').contains(sel.getRangeAt(0).commonAncestorContainer)) { const range = sel.getRangeAt(0); range.deleteContents(); range.insertNode(node); range.setStartAfter(node); range.setEndAfter(node); sel.removeAllRanges(); sel.addRange(range); } else $('doc').appendChild(node); }
-function insertImage(ev) { const file = ev.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = () => { const figure = document.createElement('figure'); figure.className = 'image-card'; figure.dataset.mdSrc = reader.result; figure.innerHTML = `<button type="button" class="image-delete" contenteditable="false" aria-label="이미지 삭제">삭제</button><img alt="${attr(file.name)}" src="${attr(reader.result)}" contenteditable="false"><figcaption contenteditable="true">${esc(file.name)}</figcaption>`; insertNodeAtSelection(figure); syncMarkdownFromDocument(); }; reader.readAsDataURL(file); ev.target.value = ''; }
+function insertImage(ev) { const file = ev.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = () => { const figure = document.createElement('figure'); const scale = defaultImageScale(); figure.className = 'image-card'; figure.dataset.mdSrc = reader.result; figure.dataset.imageScale = scale; figure.style.width = scale + '%'; figure.innerHTML = `<button type="button" class="image-delete" contenteditable="false" aria-label="이미지 삭제">삭제</button><img alt="${attr(file.name)}" src="${attr(reader.result)}" contenteditable="false"><figcaption contenteditable="true">${esc(file.name)}</figcaption>`; insertNodeAtSelection(figure); activeImageFigure = figure; syncMarkdownFromDocument(); }; reader.readAsDataURL(file); ev.target.value = ''; }
 async function insertSlideImage() {
   try {
     const sourceId = prompt('삽입할 강의자료 PDF source_id를 입력하세요.\n파일 관리/상태판에서 확인할 수 있습니다.');
@@ -381,7 +458,7 @@ async function insertSlideImage() {
     const page = Math.max(1, parseInt(pageRaw, 10) || 1);
     const caption = prompt('이미지 캡션을 입력하세요.', `${sourceId.trim()} p.${page}`) || `${sourceId.trim()} p.${page}`;
     const wrap = document.createElement('div');
-    wrap.innerHTML = slideFigureHtml({ sourceId: sourceId.trim(), page, zoom: 2, caption });
+    wrap.innerHTML = slideFigureHtml({ sourceId: sourceId.trim(), page, zoom: 2, caption, size: defaultImageScale() });
     const figure = wrap.firstElementChild;
     insertNodeAtSelection(figure);
     await hydrateSlideImages();
@@ -399,17 +476,23 @@ function printPdf() { if (!currentSourceId) return alert('먼저 저장하세요
 
 
 $('doc').addEventListener('click', (ev) => {
+  const figure = ev.target.closest?.('figure.image-card');
+  if (figure && $('doc').contains(figure)) {
+    activeImageFigure = figure;
+    applyImageScale(figure, figure.dataset.imageScale || figure.style.width || '60');
+  }
   const btn = ev.target.closest?.('.image-delete');
   if (!btn || !$('doc').contains(btn)) return;
   ev.preventDefault();
   ev.stopPropagation();
-  const figure = btn.closest('figure.image-card');
-  if (figure && confirm('이 이미지를 삭제할까요?')) {
-    figure.remove();
+  const targetFigure = btn.closest('figure.image-card');
+  if (targetFigure && confirm('이 이미지를 삭제할까요?')) {
+    if (activeImageFigure === targetFigure) activeImageFigure = null;
+    targetFigure.remove();
     syncMarkdownFromDocument();
   }
 });
 $('doc').addEventListener('input', syncMarkdownFromDocument);
 $('doc').addEventListener('paste', (ev) => { ev.preventDefault(); const text = ev.clipboardData?.getData('text/plain') || ''; document.execCommand('insertText', false, text); });
 $('markdown').addEventListener('input', () => status('원문 수정됨'));
-restore(); renderMarkdown(''); if (actionKey()) listNotes(); else status('액션 키 입력 후 목록 불러오기');
+restore(); restoreImageScale(); renderMarkdown(''); if (actionKey()) listNotes(); else status('액션 키 입력 후 목록 불러오기');

@@ -36,4 +36,4 @@
 저장:
 - saveExamCram Action 사용
 - source_type은 exam_cram
-- 기존 자료 수정 요청이면 replace_latest=true 또는 updateStudyNote 사용
+- 기존 자료 수정 요청이면 `updateStudyNote(source_id)`를 우선 사용한다. `replace_latest=true`는 `replace_source_id`가 명확할 때만 사용한다.

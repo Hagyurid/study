@@ -1,3 +1,22 @@
+# v22.21 final cleanup, safe note saves, and image resize controls
+
+- Study Note 저장 안전장치를 재점검했습니다.
+  - `series_id`는 버전 묶음용으로만 사용하며 신규 저장 시 기존 source를 덮어쓰지 않습니다.
+  - `/notes/versions` 레거시 경로도 `replace_latest=true`만으로 기존 정리본을 삭제하거나 교체하지 않습니다.
+  - 기존 정리본 교체는 명시적 `source_id` 기반 `updateStudyNote` 또는 `replace_source_id`가 있을 때만 허용합니다.
+- Study Note Studio의 글씨 크기 조정 UI를 제거했습니다.
+- Study Note Studio에 이미지 크기 조정 UI를 추가했습니다.
+  - 선택 가능한 크기: 40%, 60%, 80%, 100%
+  - 선택한 이미지에 적용되며, 새 이미지/슬라이드 삽입 시 기본 크기로도 사용됩니다.
+  - 저장 시 Markdown에 `{width=NN%}` 또는 `SLIDE_IMAGE size="NN"`로 보존됩니다.
+  - PDF/인쇄와 DOCX 출력에도 이미지별 크기를 반영하고 왼쪽 정렬합니다.
+- 배포 ZIP 정리를 강화했습니다.
+  - `data/*.sqlite3`, `__pycache__`, `.pytest_cache`, `*.pyc` 등 실행/테스트 부산물은 최종 ZIP에 포함하지 않습니다.
+- 최종 점검:
+  - Python 문법 검사 및 compileall 통과
+  - Study/solvepad JS 구문 검사 통과
+  - pytest 38개 통과
+
 # LectureNote Suite
 
 하나의 저장소에서 다음 세 가지를 묶어 관리하는 통합 서버입니다.
@@ -380,7 +399,7 @@ Custom GPT에서 “메뉴” 입력 시 단계형 메뉴 표시
 - 외부 정리본은 별도 화면이 아니라 `/upload`의 자료 유형 `외부 정리본`으로 업로드합니다.
 - 계산기 프로그램 저장 시 `analysis_markdown`과 `manual_markdown`을 함께 저장할 수 있습니다.
 - 저장된 계산기 프로젝트는 `/static/casio/index.html`에서 불러오고 사용법 문서를 열 수 있습니다.
-- 정리본 수정은 `replace_latest=true`, 계산기 수정은 `replace_calculator_project_id`로 기존 생성물을 교체할 수 있습니다.
+- 정리본 수정은 `updateStudyNote(source_id)`를 우선 사용합니다. `saveStudyNote(replace_latest=true)`는 `replace_source_id`가 명확할 때만 기존 문서를 교체합니다. 계산기 수정은 `replace_calculator_project_id`로 기존 생성물을 교체할 수 있습니다.
 
 
 ## v17 최적화
@@ -606,3 +625,37 @@ pytest -q
 pytest -q
 # 전체 테스트 통과
 ```
+
+
+## v22.19 Study Note restore + font size controls
+
+수정 범위는 운영 동작에 필요한 코드, Action 스키마, 테스트, README 기록으로 제한했습니다. Custom GPT Instructions/Knowledge 문서는 수정하지 않았습니다.
+
+### 수정 내용
+
+- Study Note Studio에 이전 버전 목록/복원 기능을 추가했습니다.
+  - 정리본을 저장하거나 수정할 때 기존 내용을 덮어쓰지 않고 새 버전 스냅샷을 추가 저장합니다.
+  - `/study/notes/{source_id}/versions`로 버전 목록을 조회합니다.
+  - `/study/notes/{source_id}/restore`로 선택 버전을 복원하며, 복원 작업도 새 버전으로 기록합니다.
+- Study Note Studio 툴바에 글씨 크기 조정 기능을 추가했습니다.
+  - 작게/보통/크게/아주 크게 중 선택합니다.
+  - 선택값은 브라우저 localStorage에 저장되어 다시 열어도 유지됩니다.
+  - PDF/인쇄 출력 바로가기에는 선택한 글씨 크기를 `font_size`로 전달합니다.
+- Action OpenAPI 문서에 정리본 버전 목록/복원 엔드포인트를 반영했습니다.
+
+### 검증
+
+```bash
+pytest -q
+# 34 passed
+```
+
+
+## v20 Study Note 저장 안전장치
+
+- `saveStudyNote`의 `replace_latest` 기본값을 `false`로 변경했습니다.
+- `replace_latest=true`만으로 같은 `series_id`의 기존 정리본을 덮어쓰지 않습니다.
+- 교체 저장은 `replace_source_id`가 전달된 경우에만 기존 source를 수정합니다.
+- 여러 단원 정리본 생성 시 `unitNumber`/`unitTitle` 또는 `doc_key` 기반으로 단원별 고유 `series_id`를 만들 수 있습니다.
+- `series_id`는 묶음/추적 용도이며, 신규 저장 시 upsert key로 사용하지 않습니다.
+- 저장 파일명은 공통 `{series_id}_vN.md` 대신 subject/unit/title 기반 이름을 우선 사용합니다.

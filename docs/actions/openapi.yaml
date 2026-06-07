@@ -213,10 +213,20 @@ paths:
                   type: string
                 series_id:
                   type: string
+                doc_key:
+                  type: string
+                unitNumber:
+                  type: string
+                unitTitle:
+                  type: string
                 change_summary:
                   type: string
                 replace_latest:
                   type: boolean
+                  description: Defaults to false. Replacement is honored only with replace_source_id; otherwise a new source is inserted.
+                replace_source_id:
+                  type: string
+                  description: Existing Study Note source_id to replace/revise safely.
       responses:
         "200":
           description: Saved study note.
@@ -261,6 +271,48 @@ paths:
       responses:
         "200":
           description: Updated study note.
+
+
+  /study/notes/{source_id}/versions:
+    get:
+      operationId: listStudyNoteVersions
+      summary: List saved edit versions for a study note so it can be restored.
+      parameters:
+        - name: source_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Study note versions.
+
+  /study/notes/{source_id}/restore:
+    post:
+      operationId: restoreStudyNoteVersion
+      summary: Restore a study note to a selected previous version while saving the restore as a new version.
+      parameters:
+        - name: source_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - version_id
+              properties:
+                version_id:
+                  type: string
+                change_summary:
+                  type: string
+      responses:
+        "200":
+          description: Restored study note.
 
   /exam-cram:
     post:

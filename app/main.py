@@ -24,11 +24,13 @@ from app.db import (
     get_mapping_status, get_next_section, get_source_markdown, get_problem_pack_by_token, get_source,
     get_calculator_blueprint, get_unit_map, get_workflow_options, init_db, list_external_notes,
     list_problem_packs,
-    list_note_versions, list_sources, list_study_notes, list_unit_maps, list_unmapped_sources,
+    list_note_versions, list_note_source_versions, list_sources, list_study_notes, list_unit_maps, list_unmapped_sources,
     list_calculator_blueprints, list_workflow_checkpoints, list_workflow_plans, list_workflow_runs,
     save_calculator_blueprint, save_note_version, save_outline, save_problem_pack,
+    make_note_doc_key,
     save_project_items, save_section, save_source, save_text_source,
     save_transcript_revision, save_unit_map, save_workflow_checkpoint, update_source_markdown, update_source_names,
+    restore_note_source_version,
     search_sources, get_next_workflow_step,
 )
 from app.models import (
@@ -43,7 +45,7 @@ from app.modules.prgm_engine import generate_txt_files, validate_blueprint
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "static"
 
-app = FastAPI(title="LectureNote Suite", version="2.2.17")
+app = FastAPI(title="LectureNote Suite", version="2.2.21")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"], allow_credentials=False)
 app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
 init_db()
@@ -295,12 +297,27 @@ def _clean_marker_attr(value: str) -> str:
     return re.sub(r"[\r\n\t]+", " ", str(value or "")).replace('"', "'").strip()
 
 
-def _slide_marker_line(source_id: str, page: int, caption: str = "", zoom: float = 2.0) -> str:
+def _normalize_image_scale(value: Any = 60, default: int = 60) -> int:
+    try:
+        match = re.search(r"\d+", str(value or ""))
+        scale = int(match.group(0)) if match else int(default)
+    except Exception:
+        scale = int(default)
+    return max(30, min(100, scale))
+
+
+def _image_figure_attrs(scale: Any = 60) -> str:
+    normalized = _normalize_image_scale(scale)
+    return f" data-image-scale='{normalized}' style='width:{normalized}%;'"
+
+
+def _slide_marker_line(source_id: str, page: int, caption: str = "", zoom: float = 2.0, size: int = 60) -> str:
     safe_source = _clean_marker_attr(source_id)
     safe_caption = _clean_marker_attr(caption or f"{safe_source} p.{page}")
     page = max(1, int(page or 1))
     zoom = min(4.0, max(0.5, float(zoom or 2.0)))
-    return f'[[SLIDE_IMAGE source_id="{safe_source}" page="{page}" caption="{safe_caption}" zoom="{zoom:g}"]]'
+    size = _normalize_image_scale(size)
+    return f'[[SLIDE_IMAGE source_id="{safe_source}" page="{page}" caption="{safe_caption}" zoom="{zoom:g}" size="{size}"]]'
 
 
 def _is_renderable_pdf_source(source: Dict[str, Any]) -> bool:
@@ -356,7 +373,8 @@ def _complete_or_convert_slide_placeholder(line: str, subject: str = "") -> Tupl
                 zoom = float(attrs.get("zoom") or 2.0)
             except Exception:
                 zoom = 2.0
-            marker = _slide_marker_line(source_id, page, caption, zoom)
+            size = _normalize_image_scale(attrs.get("size") or attrs.get("scale") or attrs.get("width") or 60)
+            marker = _slide_marker_line(source_id, page, caption, zoom, size)
             return marker, 1 if marker != line else 0
         return line, 0
 
@@ -477,7 +495,8 @@ def _parse_slide_marker(line: str) -> Optional[dict]:
     except Exception:
         zoom = 2.0
     caption = attrs.get("caption") or attrs.get("label") or f"{source_id} p.{page}"
-    return {"source_id": source_id, "page": page, "zoom": zoom, "caption": caption}
+    size = _normalize_image_scale(attrs.get("size") or attrs.get("scale") or attrs.get("width") or 60)
+    return {"source_id": source_id, "page": page, "zoom": zoom, "caption": caption, "size": size}
 
 @lru_cache(maxsize=160)
 def _render_pdf_page_png_base64(stored_path: str, mtime_ns: int, page: int, zoom: float) -> Dict[str, Any]:
@@ -535,15 +554,17 @@ def _slide_marker_html(line: str) -> Optional[str]:
     caption = marker.get("caption") or f"{marker['source_id']} p.{marker['page']}"
     try:
         data = _render_slide_data(marker["source_id"], marker["page"], marker["zoom"])
+        attrs = _image_figure_attrs(marker.get("size", 60))
         return (
-            "<figure class='image-card slide-card'>"
+            f"<figure class='image-card slide-card'{attrs}>"
             f"<img alt='{escape(caption)}' src='{escape(data['data_url'])}'/>"
             f"<figcaption>{escape(caption)}</figcaption>"
             "</figure>"
         )
     except Exception as exc:
+        attrs = _image_figure_attrs(marker.get("size", 60))
         return (
-            "<figure class='image-card slide-card slide-error'>"
+            f"<figure class='image-card slide-card slide-error'{attrs}>"
             f"<div class='flow-box'>슬라이드 삽입 실패: {escape(str(exc))}</div>"
             f"<figcaption>{escape(caption)}</figcaption>"
             "</figure>"
@@ -577,9 +598,10 @@ def _simple_markdown_html(markdown: str) -> str:
             blocks.append(slide_html)
             i += 1
             continue
-        img = re.match(r"^!\[([^\]]*)\]\((.+)\)$", line.strip())
+        img = re.match(r"^!\[([^\]]*)\]\((.+)\)(?:\{(?:width|size|scale)=(\d+)%?\})?$", line.strip())
         if img:
-            blocks.append(f"<figure class='image-card'><img alt='{escape(img.group(1) or '이미지')}' src='{escape(img.group(2))}'/><figcaption>{escape(img.group(1) or '이미지')}</figcaption></figure>")
+            scale_attrs = _image_figure_attrs(img.group(3) or 60)
+            blocks.append(f"<figure class='image-card'{scale_attrs}><img alt='{escape(img.group(1) or '이미지')}' src='{escape(img.group(2))}'/><figcaption>{escape(img.group(1) or '이미지')}</figcaption></figure>")
             i += 1
             continue
         if _md_is_table_row(line) and i + 1 < len(lines) and _md_is_table_separator(lines[i + 1]):
@@ -678,8 +700,7 @@ def _markdown_to_docx_bytes(title: str, markdown: str) -> BytesIO:
     doc = Document()
     doc.core_properties.title = title or "Study Note"
     doc.add_heading(title or "Study Note", level=1)
-    output_image_width = _docx_body_width(doc, 0.6)
-    image_pattern = re.compile(r"!\[([^\]]*)\]\((data:image/[^;]+;base64,([^)]+))\)")
+    image_pattern = re.compile(r"!\[([^\]]*)\]\((data:image/[^;]+;base64,([^)]+))\)(?:\{(?:width|size|scale)=(\d+)%?\})?")
     lines = (markdown or "").replace("\r\n", "\n").splitlines()
     fenced = False
     code_buffer: List[str] = []
@@ -710,7 +731,7 @@ def _markdown_to_docx_bytes(title: str, markdown: str) -> BytesIO:
             try:
                 data = _render_slide_data(slide_marker["source_id"], slide_marker["page"], slide_marker["zoom"])
                 bio = BytesIO(base64.b64decode(data["png_base64"], validate=False))
-                _add_docx_image_left(doc, bio, output_image_width)
+                _add_docx_image_left(doc, bio, _docx_body_width(doc, _normalize_image_scale(slide_marker.get("size", 60)) / 100))
                 caption = _clean_markdown_inline_for_docx(slide_marker.get("caption") or data.get("label") or "슬라이드")
                 if caption:
                     _add_docx_caption_left(doc, caption)
@@ -722,7 +743,7 @@ def _markdown_to_docx_bytes(title: str, markdown: str) -> BytesIO:
         if img:
             try:
                 bio = BytesIO(base64.b64decode(img.group(3), validate=False))
-                _add_docx_image_left(doc, bio, output_image_width)
+                _add_docx_image_left(doc, bio, _docx_body_width(doc, _normalize_image_scale(img.group(4) or 60) / 100))
                 caption = _clean_markdown_inline_for_docx(img.group(1) or "이미지")
                 if caption:
                     _add_docx_caption_left(doc, caption)
@@ -787,7 +808,7 @@ def _coerce_object_payload(value: Any, value_json: str = "", field_name: str = "
 
 @app.get("/health")
 def health():
-    return {"ok": True, "service": "lecturenote-suite", "version": "2.2.13"}
+    return {"ok": True, "service": "lecturenote-suite", "version": "2.2.19"}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -1135,9 +1156,34 @@ def export_project_note_source_endpoint(project_id: str, payload: dict = None):
 @app.post("/notes/versions", dependencies=[Depends(require_auth)])
 def save_note_version_endpoint(payload: NoteVersionSave):
     subject = payload.subject.strip()
-    content, inserted = _prepare_note_markdown_for_save(payload.content_markdown, subject, payload.source_type, payload.auto_slide_images)
-    result = save_note_version(payload.title, content, payload.series_id, payload.source_type, payload.change_summary, payload.based_on_version, subject, payload.replace_latest)
-    return {**result, "content_markdown": content, "auto_slide_markers_inserted": inserted}
+    source_type = payload.source_type if payload.source_type in {"generated_note", "external_note", "exam_cram", "calculator_manual", "note_example"} else "generated_note"
+    content, inserted = _prepare_note_markdown_for_save(payload.content_markdown, subject, source_type, payload.auto_slide_images)
+    replace_source_id = payload.replace_source_id.strip()
+    if replace_source_id and not get_source(replace_source_id):
+        raise HTTPException(status_code=404, detail="replace_source_id not found")
+    unit_number = payload.unitNumber.strip()
+    unit_title = payload.unitTitle.strip()
+    doc_key = payload.doc_key.strip()
+    series_id = payload.series_id.strip()
+    if source_type == "generated_note" and not replace_source_id and (doc_key or unit_number):
+        doc_key = doc_key or make_note_doc_key(subject, unit_number, unit_title, payload.title)
+        series_id = doc_key
+    result = save_note_version(
+        payload.title,
+        content,
+        series_id,
+        source_type,
+        payload.change_summary,
+        payload.based_on_version,
+        subject,
+        bool(payload.replace_latest and replace_source_id),
+        replace_source_id,
+        doc_key,
+        unit_number,
+        unit_title,
+    )
+    ignored_replace_latest = bool(payload.replace_latest and not replace_source_id)
+    return {**result, "content_markdown": content, "auto_slide_markers_inserted": inserted, "replace_latest_ignored": ignored_replace_latest}
 
 
 @app.get("/notes/versions", dependencies=[Depends(require_auth)])
@@ -1205,17 +1251,35 @@ def save_study_note_endpoint(payload: StudyNoteSave):
     source_type = payload.source_type if payload.source_type in {"generated_note", "external_note", "exam_cram", "calculator_manual", "note_example"} else "generated_note"
     subject = payload.subject.strip()
     content, inserted = _prepare_note_markdown_for_save(payload.content_markdown, subject, source_type, payload.auto_slide_images)
+    replace_source_id = payload.replace_source_id.strip()
+    if replace_source_id and not get_source(replace_source_id):
+        raise HTTPException(status_code=404, detail="replace_source_id not found")
+    unit_number = payload.unitNumber.strip()
+    unit_title = payload.unitTitle.strip()
+    doc_key = payload.doc_key.strip()
+    series_id = payload.series_id.strip()
+    if source_type == "generated_note" and not replace_source_id and (doc_key or unit_number):
+        doc_key = doc_key or make_note_doc_key(subject, unit_number, unit_title, payload.title)
+        series_id = doc_key
+    replace_latest = bool(payload.replace_latest and replace_source_id)
     result = save_note_version(
         payload.title,
         content,
-        payload.series_id,
+        series_id,
         source_type,
         payload.change_summary,
         None,
         subject,
-        payload.replace_latest,
+        replace_latest,
+        replace_source_id,
+        doc_key,
+        unit_number,
+        unit_title,
     )
-    return {**result, "content_markdown": content, "auto_slide_markers_inserted": inserted}
+    if not result:
+        raise HTTPException(status_code=404, detail="Study note target not found")
+    ignored_replace_latest = bool(payload.replace_latest and not replace_source_id)
+    return {**result, "content_markdown": content, "auto_slide_markers_inserted": inserted, "replace_latest_ignored": ignored_replace_latest}
 
 
 @app.post("/exam-cram", dependencies=[Depends(require_auth)])
@@ -1241,6 +1305,27 @@ def get_study_note_endpoint(source_id: str):
     if not note:
         raise HTTPException(status_code=404, detail="Study note not found")
     return note
+
+
+@app.get("/study/notes/{source_id}/versions", dependencies=[Depends(require_auth)])
+def list_study_note_versions_endpoint(source_id: str):
+    source = get_source(source_id)
+    if not source:
+        raise HTTPException(status_code=404, detail="Study note not found")
+    return {"source_id": source_id, "versions": list_note_source_versions(source_id)}
+
+
+@app.post("/study/notes/{source_id}/restore", dependencies=[Depends(require_auth)])
+def restore_study_note_version_endpoint(source_id: str, payload: dict):
+    version_id = str((payload or {}).get("version_id") or "").strip()
+    if not version_id:
+        raise HTTPException(status_code=422, detail="version_id is required")
+    change_summary = str((payload or {}).get("change_summary") or "").strip() or "restored previous note version"
+    result = restore_note_source_version(source_id, version_id, change_summary)
+    if not result:
+        raise HTTPException(status_code=404, detail="Version not found for this note")
+    note = get_source_markdown(source_id)
+    return {**result, "content_markdown": (note or {}).get("markdown", "")}
 
 
 @app.put("/study/notes/{source_id}", dependencies=[Depends(require_auth)])
@@ -1272,7 +1357,7 @@ def render_source_slide_image(source_id: str, page: int = Query(default=1, ge=1)
         "page_count": data["page_count"],
         "label": label,
         "data_url": data["data_url"],
-        "markdown": f"[[SLIDE_IMAGE source_id=\"{source_id}\" page=\"{page}\" caption=\"{label}\"]]",
+        "markdown": f"[[SLIDE_IMAGE source_id=\"{source_id}\" page=\"{page}\" caption=\"{label}\" size=\"60\"]]",
     }
 
 @app.get("/study/notes/{source_id}/download.md")
@@ -1312,7 +1397,7 @@ def print_study_note_page(source_id: str):
         raise HTTPException(status_code=404, detail="Study note not found")
     title = escape(note["source"].get("title", source_id))
     html = _simple_markdown_html(note.get("markdown", ""))
-    return HTMLResponse(f"""<!doctype html><html lang='ko'><head><meta charset='utf-8'/><meta name='viewport' content='width=device-width,initial-scale=1'/><title>{title}</title><script>window.MathJax={{tex:{{inlineMath:[["$","$"],["\\\\(","\\\\)"]],displayMath:[["$$","$$"],["\\\\[","\\\\]"]],processEscapes:true}},svg:{{fontCache:'global'}}}};</script><script defer src='https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js'></script><style>body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',Arial,sans-serif;line-height:1.72;max-width:820px;margin:0 auto;padding:34px;color:#111827}}.bar{{display:flex;gap:8px;margin-bottom:20px}}button,a{{border:0;border-radius:10px;padding:9px 12px;background:#4f46e5;color:white;text-decoration:none;font-weight:800}}figure.image-card{{width:60%;margin:18px 0;text-align:left}}figure.image-card img{{display:block;width:100%;max-width:100%;margin-left:0;margin-right:auto;border-radius:10px}}figure.image-card figcaption{{font-size:12px;color:#667085;margin-top:6px;text-align:left}}img{{max-width:100%;border-radius:10px}}figcaption{{font-size:12px;color:#667085;margin-top:6px}}mark{{background:#fff39a}}.table-wrap{{overflow:visible;margin:18px 0}}table{{width:100%;border-collapse:collapse;font-size:13px}}th,td{{border:1px solid #d0d5dd;padding:8px 10px;vertical-align:top;text-align:left}}th{{background:#f2f4f7;font-weight:800}}pre,.flow-box{{background:#f8fafc;border:1px solid #e4e7ec;border-radius:10px;padding:12px;white-space:pre-wrap}}@media print{{.bar{{display:none}}body{{padding:0;max-width:none}}table{{break-inside:auto}}tr{{break-inside:avoid}}}}</style></head><body><div class='bar'><button onclick='window.print()'>PDF로 저장/인쇄</button><a href='/static/study/index.html'>Study Studio</a><a href='/'>홈</a></div><article>{html}</article></body></html>""")
+    return HTMLResponse(f"""<!doctype html><html lang='ko'><head><meta charset='utf-8'/><meta name='viewport' content='width=device-width,initial-scale=1'/><title>{title}</title><script>window.MathJax={{tex:{{inlineMath:[["$","$"],["\\\\(","\\\\)"]],displayMath:[["$$","$$"],["\\\\[","\\\\]"]],processEscapes:true}},svg:{{fontCache:'global'}}}};</script><script defer src='https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js'></script><style>body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',Arial,sans-serif;font-size:16px;line-height:1.72;max-width:820px;margin:0 auto;padding:34px;color:#111827}}.bar{{display:flex;gap:8px;margin-bottom:20px}}button,a{{border:0;border-radius:10px;padding:9px 12px;background:#4f46e5;color:white;text-decoration:none;font-weight:800}}figure.image-card{{width:60%;margin:18px 0;text-align:left}}figure.image-card img{{display:block;width:100%;max-width:100%;margin-left:0;margin-right:auto;border-radius:10px}}figure.image-card figcaption{{font-size:12px;color:#667085;margin-top:6px;text-align:left}}img{{max-width:100%;border-radius:10px}}figcaption{{font-size:12px;color:#667085;margin-top:6px}}mark{{background:#fff39a}}.table-wrap{{overflow:visible;margin:18px 0}}table{{width:100%;border-collapse:collapse;font-size:13px}}th,td{{border:1px solid #d0d5dd;padding:8px 10px;vertical-align:top;text-align:left}}th{{background:#f2f4f7;font-weight:800}}pre,.flow-box{{background:#f8fafc;border:1px solid #e4e7ec;border-radius:10px;padding:12px;white-space:pre-wrap}}@media print{{.bar{{display:none}}body{{padding:0;max-width:none}}table{{break-inside:auto}}tr{{break-inside:avoid}}}}</style></head><body><div class='bar'><button onclick='window.print()'>PDF로 저장/인쇄</button><a href='/static/study/index.html'>Study Studio</a><a href='/'>홈</a></div><article>{html}</article></body></html>""")
 
 @app.get("/unit-maps/{unit_map_id}", dependencies=[Depends(require_auth)])
 def get_unit_map_endpoint(unit_map_id: str):

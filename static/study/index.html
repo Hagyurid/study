@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Study Note Studio</title>
-  <link rel="stylesheet" href="styles.css?v=22_14" />
+  <link rel="stylesheet" href="styles.css?v=22_21" />
   <script>
     window.MathJax = { tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']], processEscapes: true }, svg: { fontCache: 'global' } };
   </script>
@@ -38,6 +38,15 @@
       <div class="toolbar">
         <input id="title" placeholder="제목" />
         <button onclick="saveNote()">저장</button>
+        <button class="secondary" onclick="openVersionDialog()">이전 버전</button>
+        <label class="toolbar-select">이미지 크기
+          <select id="imageScale" onchange="setSelectedImageScale(this.value)">
+            <option value="40">40%</option>
+            <option value="60" selected>60%</option>
+            <option value="80">80%</option>
+            <option value="100">100%</option>
+          </select>
+        </label>
         <button onclick="highlightSelection()">형광펜</button>
         <button class="secondary" onclick="clearHighlight()">형광펜 지우기</button>
         <label class="filebtn">이미지<input id="imageInput" type="file" accept="image/*" onchange="insertImage(event)" /></label><button class="secondary" onclick="insertSlideImage()">슬라이드 삽입</button>
@@ -54,9 +63,14 @@
           <textarea id="markdown" spellcheck="false" placeholder="Markdown 원문"></textarea>
           <p class="hint">수식 자체를 고칠 때만 사용하세요. 닫으면 문서 화면에 다시 반영됩니다.</p>
         </dialog>
+        <dialog id="versionDialog">
+          <div class="dialog-head"><b>이전 버전</b><button onclick="closeVersionDialog()">닫기</button></div>
+          <div id="versionList" class="version-list"></div>
+          <p class="hint">복원하면 현재 문서가 선택한 버전 내용으로 바뀌고, 복원 기록도 새 버전으로 저장됩니다.</p>
+        </dialog>
       </div>
     </section>
   </main>
-  <script src="app.js?v=22_14"></script>
+  <script src="app.js?v=22_21"></script>
 </body>
 </html>
