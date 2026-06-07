@@ -1,21 +1,28 @@
-# v22.22 image resize range update
+# v22.25 repository-first artifact and Study Studio UI update
 
-- Study Note 저장 안전장치를 재점검했습니다.
-  - `series_id`는 버전 묶음용으로만 사용하며 신규 저장 시 기존 source를 덮어쓰지 않습니다.
-  - `/notes/versions` 레거시 경로도 `replace_latest=true`만으로 기존 정리본을 삭제하거나 교체하지 않습니다.
-  - 기존 정리본 교체는 명시적 `source_id` 기반 `updateStudyNote` 또는 `replace_source_id`가 있을 때만 허용합니다.
-- Study Note Studio의 글씨 크기 조정 UI를 제거했습니다.
-- Study Note Studio에 이미지 크기 조정 UI를 추가했습니다.
-  - 선택 가능한 크기: 10%~100% 범위의 10% 단위
-  - 선택한 이미지에 적용되며, 새 이미지/슬라이드 삽입 시 기본 크기로도 사용됩니다.
-  - 저장 시 Markdown에 `{width=NN%}` 또는 `SLIDE_IMAGE size="NN"`로 보존됩니다.
-  - PDF/인쇄와 DOCX 출력에도 이미지별 크기를 반영하고 왼쪽 정렬합니다.
-- 배포 ZIP 정리를 강화했습니다.
-  - `data/*.sqlite3`, `__pycache__`, `.pytest_cache`, `*.pyc` 등 실행/테스트 부산물은 최종 ZIP에 포함하지 않습니다.
+- v22.22를 기준으로 이후 이미지/정리본 목록 패치를 통합했습니다.
+- SolvePad 문제팩 저장 방식을 링크 import 중심이 아니라 서버 저장소 중심으로 보강했습니다.
+  - `saveProblemPack` 실행 시 `problem_packs` 테이블과 `problem_pack` source index에 등록됩니다.
+  - SolvePad의 문제팩 관리 창에서 `/problem-packs`를 직접 조회해 “메인 저장소 문제팩” 목록으로 표시합니다.
+  - 링크를 열지 않아도 SolvePad에서 저장된 문제팩을 불러올 수 있습니다.
+- CASIO 계산기 저장소 연동을 보강했습니다.
+  - 계산기 Studio 접속 시 `/calculator/projects` 목록을 자동 조회합니다.
+  - GPT가 저장한 `calculator_project`, `calculator_program`, `calculator_manual`, `calculator_analysis` 항목이 사이트 목록에서 조회됩니다.
+  - `studio_url`, `open_url`은 바로가기일 뿐이며 저장소 조회가 기본 흐름입니다.
+- Study Note Studio UI를 보강했습니다.
+  - 정리본 목록은 과목/자료 유형별 접이식 목록으로 표시합니다.
+  - 형광펜, 이미지, 슬라이드, 이미지 크기, 내보내기 기능은 우측 고정 퀵 툴바에서 항상 접근할 수 있습니다.
+  - 각 이미지 옆 개별 크기 조정 컨트롤과 전체 이미지 크기 적용 기능을 유지합니다.
+  - 이미지 비율 깨짐을 막기 위해 편집/출력 화면에서 `height:auto`, `object-fit:contain`을 적용합니다.
+- Custom GPT 지침 문서에 수식/그래프 상세 정리 규칙을 반영했습니다.
+  - 식의 유도, 성립 조건, 적용 상황, 식의 의미, 그래프 의미, 변수 관계를 가능한 한 작성합니다.
+  - 교수자가 결과/형태/경향만 확인하라고 제한한 경우에는 상세 유도 없이 확인 범위만 정리합니다.
 - 최종 점검:
-  - Python 문법 검사 및 compileall 통과
-  - Study/solvepad JS 구문 검사 통과
-  - pytest 39개 통과
+  - `python -m compileall -q app` 통과
+  - `node --check static/study/app.js` 통과
+  - `node --check static/solvepad/app.js` 통과
+  - CASIO inline script syntax check 통과
+  - `pytest -q` 41개 통과
 
 # LectureNote Suite
 

@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Study Note Studio</title>
-  <link rel="stylesheet" href="styles.css?v=22_22" />
+  <link rel="stylesheet" href="styles.css?v=22_25" />
   <script>
     window.MathJax = { tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']], processEscapes: true }, svg: { fontCache: 'global' } };
   </script>
@@ -39,27 +39,7 @@
         <input id="title" placeholder="제목" />
         <button onclick="saveNote()">저장</button>
         <button class="secondary" onclick="openVersionDialog()">이전 버전</button>
-        <label class="toolbar-select">이미지 크기
-          <select id="imageScale" onchange="setSelectedImageScale(this.value)">
-            <option value="10">10%</option>
-            <option value="20">20%</option>
-            <option value="30">30%</option>
-            <option value="40">40%</option>
-            <option value="50">50%</option>
-            <option value="60" selected>60%</option>
-            <option value="70">70%</option>
-            <option value="80">80%</option>
-            <option value="90">90%</option>
-            <option value="100">100%</option>
-          </select>
-        </label>
-        <button onclick="highlightSelection()">형광펜</button>
-        <button class="secondary" onclick="clearHighlight()">형광펜 지우기</button>
-        <label class="filebtn">이미지<input id="imageInput" type="file" accept="image/*" onchange="insertImage(event)" /></label><button class="secondary" onclick="insertSlideImage()">슬라이드 삽입</button>
         <span class="spacer"></span>
-        <button class="secondary" onclick="downloadMd()">Markdown</button>
-        <button class="secondary" onclick="downloadDocx()">Word</button>
-        <button class="secondary" onclick="printPdf()">PDF 저장</button>
         <button class="ghost" onclick="toggleSource()" id="sourceToggle">고급: 원문 보기</button>
       </div>
       <div class="workarea">
@@ -77,6 +57,20 @@
       </div>
     </section>
   </main>
-  <script src="app.js?v=22_22"></script>
+  <script src="app.js?v=22_25"></script>
+
+  <div class="study-right-rail" aria-label="빠른 편집 도구">
+    <button type="button" onclick="highlightSelection()">형광펜</button>
+    <button type="button" class="light" onclick="clearHighlight()">형광펜 지우기</button>
+    <label class="rail-filebtn">이미지<input id="imageInput" type="file" accept="image/*" onchange="insertImage(event)" /></label>
+    <button type="button" class="light" onclick="insertSlideImage()">슬라이드</button>
+    <label class="rail-select">이미지 크기<select id="imageScale" onchange="setDefaultImageScale(this.value)">
+      <option value="10">10%</option><option value="20">20%</option><option value="30">30%</option><option value="40">40%</option><option value="50">50%</option><option value="60" selected>60%</option><option value="70">70%</option><option value="80">80%</option><option value="90">90%</option><option value="100">100%</option>
+    </select></label>
+    <button type="button" class="light" onclick="applyImageScaleToAll()">전체 적용</button>
+    <button type="button" class="light" onclick="downloadMd()">Markdown</button>
+    <button type="button" class="light" onclick="downloadDocx()">Word</button>
+    <button type="button" class="light" onclick="printPdf()">PDF</button>
+  </div>
 </body>
 </html>

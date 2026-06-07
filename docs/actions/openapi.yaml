@@ -347,7 +347,7 @@ paths:
   /problem-packs:
     post:
       operationId: saveProblemPack
-      summary: Save a SolvePad problem pack and return an open_url that auto-imports it into SolvePad without manual upload.
+      summary: Save a SolvePad problem pack as a server repository item so it appears in SolvePad lists without manual upload; URLs are shortcuts only.
       requestBody:
         required: true
         content:
@@ -381,7 +381,7 @@ paths:
                     type: string
       responses:
         "200":
-          description: Saved problem pack with open_url/import_url/solvepad_url and searchable source_id.
+          description: Saved problem_pack with source_id; it appears in SolvePad main repository list. URLs are shortcuts only.
     get:
       operationId: listProblemPacks
       summary: List saved SolvePad problem packs registered in the source index.
@@ -394,6 +394,21 @@ paths:
       responses:
         "200":
           description: Problem packs.
+
+
+  /problem-packs/{pack_id}:
+    get:
+      operationId: getProblemPack
+      summary: Get a saved SolvePad problem pack by pack_id for direct loading from the server repository.
+      parameters:
+        - name: pack_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Problem pack with pack JSON.
 
   /calculator/projects:
     get:
@@ -470,7 +485,7 @@ paths:
   /calculator/generate:
     post:
       operationId: generateCalculatorProgram
-      summary: Generate CASIO PRGM TXT files, save the calculator project, and return an open_url that opens it in CASIO PRGM Studio without manual upload.
+      summary: Generate CASIO PRGM TXT files and register calculator_project/program/manual/analysis items so they appear in Calculator Studio without manual upload; URLs are shortcuts only.
       requestBody:
         required: true
         content:
@@ -497,7 +512,7 @@ paths:
                   type: string
       responses:
         "200":
-          description: Generated calculator project with searchable source_id, linked artifact source IDs, and open_url/studio_url/casio_url/download_url.
+          description: Generated calculator project with searchable source_id and linked artifact source IDs; Studio/download/manual URLs are shortcuts only.
 
   /transcripts/revisions:
     post:

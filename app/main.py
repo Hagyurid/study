@@ -21,7 +21,7 @@ from app.db import (
     create_project, create_workflow_plan, create_workflow_run, delete_source, delete_calculator_blueprint,
     export_project_note_as_source, final_bundle, get_latest_note_version,
     get_dashboard,
-    get_mapping_status, get_next_section, get_source_markdown, get_problem_pack_by_token, get_source,
+    get_mapping_status, get_next_section, get_source_markdown, get_problem_pack_by_token, get_problem_pack_by_id, get_source,
     get_calculator_blueprint, get_unit_map, get_workflow_options, init_db, list_external_notes,
     list_problem_packs,
     list_note_versions, list_note_source_versions, list_sources, list_study_notes, list_unit_maps, list_unmapped_sources,
@@ -45,7 +45,7 @@ from app.modules.prgm_engine import generate_txt_files, validate_blueprint
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "static"
 
-app = FastAPI(title="LectureNote Suite", version="2.2.21")
+app = FastAPI(title="LectureNote Suite", version="2.2.25")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"], allow_credentials=False)
 app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
 init_db()
@@ -1398,7 +1398,7 @@ def print_study_note_page(source_id: str):
         raise HTTPException(status_code=404, detail="Study note not found")
     title = escape(note["source"].get("title", source_id))
     html = _simple_markdown_html(note.get("markdown", ""))
-    return HTMLResponse(f"""<!doctype html><html lang='ko'><head><meta charset='utf-8'/><meta name='viewport' content='width=device-width,initial-scale=1'/><title>{title}</title><script>window.MathJax={{tex:{{inlineMath:[["$","$"],["\\\\(","\\\\)"]],displayMath:[["$$","$$"],["\\\\[","\\\\]"]],processEscapes:true}},svg:{{fontCache:'global'}}}};</script><script defer src='https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js'></script><style>body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',Arial,sans-serif;font-size:16px;line-height:1.72;max-width:820px;margin:0 auto;padding:34px;color:#111827}}.bar{{display:flex;gap:8px;margin-bottom:20px}}button,a{{border:0;border-radius:10px;padding:9px 12px;background:#4f46e5;color:white;text-decoration:none;font-weight:800}}figure.image-card{{width:60%;margin:18px 0;text-align:left}}figure.image-card img{{display:block;width:100%;max-width:100%;margin-left:0;margin-right:auto;border-radius:10px}}figure.image-card figcaption{{font-size:12px;color:#667085;margin-top:6px;text-align:left}}img{{max-width:100%;border-radius:10px}}figcaption{{font-size:12px;color:#667085;margin-top:6px}}mark{{background:#fff39a}}.table-wrap{{overflow:visible;margin:18px 0}}table{{width:100%;border-collapse:collapse;font-size:13px}}th,td{{border:1px solid #d0d5dd;padding:8px 10px;vertical-align:top;text-align:left}}th{{background:#f2f4f7;font-weight:800}}pre,.flow-box{{background:#f8fafc;border:1px solid #e4e7ec;border-radius:10px;padding:12px;white-space:pre-wrap}}@media print{{.bar{{display:none}}body{{padding:0;max-width:none}}table{{break-inside:auto}}tr{{break-inside:avoid}}}}</style></head><body><div class='bar'><button onclick='window.print()'>PDF로 저장/인쇄</button><a href='/static/study/index.html'>Study Studio</a><a href='/'>홈</a></div><article>{html}</article></body></html>""")
+    return HTMLResponse(f"""<!doctype html><html lang='ko'><head><meta charset='utf-8'/><meta name='viewport' content='width=device-width,initial-scale=1'/><title>{title}</title><script>window.MathJax={{tex:{{inlineMath:[["$","$"],["\\\\(","\\\\)"]],displayMath:[["$$","$$"],["\\\\[","\\\\]"]],processEscapes:true}},svg:{{fontCache:'global'}}}};</script><script defer src='https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js'></script><style>body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',Arial,sans-serif;font-size:16px;line-height:1.72;max-width:820px;margin:0 auto;padding:34px;color:#111827}}.bar{{display:flex;gap:8px;margin-bottom:20px}}button,a{{border:0;border-radius:10px;padding:9px 12px;background:#4f46e5;color:white;text-decoration:none;font-weight:800}}figure.image-card{{width:60%;margin:18px 0;text-align:left}}figure.image-card img{{display:block;width:100%;max-width:100%;height:auto;max-height:none;object-fit:contain;margin-left:0;margin-right:auto;border-radius:10px}}figure.image-card figcaption{{font-size:12px;color:#667085;margin-top:6px;text-align:left}}img{{max-width:100%;height:auto;object-fit:contain;border-radius:10px}}figcaption{{font-size:12px;color:#667085;margin-top:6px}}mark{{background:#fff39a}}.table-wrap{{overflow:visible;margin:18px 0}}table{{width:100%;border-collapse:collapse;font-size:13px}}th,td{{border:1px solid #d0d5dd;padding:8px 10px;vertical-align:top;text-align:left}}th{{background:#f2f4f7;font-weight:800}}pre,.flow-box{{background:#f8fafc;border:1px solid #e4e7ec;border-radius:10px;padding:12px;white-space:pre-wrap}}@media print{{.bar{{display:none}}body{{padding:0;max-width:none}}table{{break-inside:auto}}tr{{break-inside:avoid}}}}</style></head><body><div class='bar'><button onclick='window.print()'>PDF로 저장/인쇄</button><a href='/static/study/index.html'>Study Studio</a><a href='/'>홈</a></div><article>{html}</article></body></html>""")
 
 @app.get("/unit-maps/{unit_map_id}", dependencies=[Depends(require_auth)])
 def get_unit_map_endpoint(unit_map_id: str):
@@ -1412,22 +1412,41 @@ def get_unit_map_endpoint(unit_map_id: str):
 def save_problem_pack_endpoint(payload: ProblemPackSave):
     pack = _coerce_object_payload(payload.pack, payload.pack_json, "pack")
     saved = save_problem_pack(payload.title, pack, payload.subject, payload.unitNumber, payload.unitTitle, payload.tags, payload.source_refs)
-    import_url = f"{PUBLIC_BASE_URL}/static/solvepad/index.html?server={PUBLIC_BASE_URL}&importToken={saved['token']}"
+    solvepad_url = f"{PUBLIC_BASE_URL}/static/solvepad/index.html"
+    legacy_import_url = f"{solvepad_url}?server={PUBLIC_BASE_URL}&importToken={saved['token']}"
     return {
         **saved,
-        "import_url": import_url,
-        "open_url": import_url,
-        "solvepad_url": import_url,
+        "open_url": solvepad_url,
+        "solvepad_url": solvepad_url,
+        "import_url": solvepad_url,
+        "legacy_import_url": legacy_import_url,
         "program": "SolvePad",
-        "message": "Saved problem pack. Open open_url to auto-import and open it in SolvePad without manual upload.",
+        "message": "Saved and registered as type=problem_pack. It appears in SolvePad's main repository list; links are only shortcuts.",
     }
-
-
 
 
 @app.get("/problem-packs", dependencies=[Depends(require_auth)])
 def list_problem_packs_endpoint(subject: str = Query(default="")):
-    return {"problem_packs": list_problem_packs(subject)}
+    packs = list_problem_packs(subject)
+    for item in packs:
+        token = item.get("token", "")
+        pack_id = item.get("pack_id", "")
+        item["solvepad_url"] = f"{PUBLIC_BASE_URL}/static/solvepad/index.html"
+        item["open_url"] = item["solvepad_url"]
+        item["import_url"] = item["solvepad_url"]
+        if token:
+            item["legacy_import_url"] = f"{PUBLIC_BASE_URL}/static/solvepad/index.html?server={PUBLIC_BASE_URL}&importToken={token}"
+        if pack_id:
+            item["shortcut_url"] = f"{PUBLIC_BASE_URL}/static/solvepad/index.html?server={PUBLIC_BASE_URL}&packId={pack_id}"
+    return {"problem_packs": packs}
+
+
+@app.get("/problem-packs/{pack_id}", dependencies=[Depends(require_auth)])
+def get_problem_pack_endpoint(pack_id: str):
+    pack = get_problem_pack_by_id(pack_id)
+    if not pack:
+        raise HTTPException(status_code=404, detail="Problem pack not found")
+    return pack
 
 
 @app.get("/packs/{token}")
@@ -1508,7 +1527,8 @@ def generate_calculator(payload: CalculatorBlueprintSave):
         payload.replace_calculator_project_id,
     )
     project_id = saved["calculator_project_id"]
-    studio_url = f"{PUBLIC_BASE_URL}/static/casio/index.html?projectId={project_id}"
+    studio_url = f"{PUBLIC_BASE_URL}/static/casio/index.html"
+    shortcut_url = f"{studio_url}?projectId={project_id}"
     return {
         **saved,
         "validation": validation,
@@ -1517,9 +1537,10 @@ def generate_calculator(payload: CalculatorBlueprintSave):
         "studio_url": studio_url,
         "open_url": studio_url,
         "casio_url": studio_url,
+        "shortcut_url": shortcut_url,
         "download_url": f"{PUBLIC_BASE_URL}/calculator/projects/{project_id}/download.zip",
         "program": "CASIO PRGM Studio",
-        "message": "Saved calculator project. Open open_url to view generated TXT files, analysis, and manual in CASIO PRGM Studio without manual upload.",
+        "message": "Saved and registered as calculator_project/calculator_program/calculator_manual/calculator_analysis. It appears in Calculator Studio's main repository list; links are only shortcuts.",
     }
 
 

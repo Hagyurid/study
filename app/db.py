@@ -1589,6 +1589,26 @@ def get_problem_pack_by_token(token: str) -> Optional[Dict[str, Any]]:
     return {"pack": json.loads(data["pack_json"]), "title": data["title"], "pack_id": data["id"], "source_id": data.get("source_id", "")}
 
 
+def get_problem_pack_by_id(pack_id: str) -> Optional[Dict[str, Any]]:
+    with conn() as db:
+        row = db.execute("SELECT * FROM problem_packs WHERE id=?", (pack_id,)).fetchone()
+    if not row:
+        return None
+    data = dict(row)
+    return {
+        "pack": json.loads(data["pack_json"]),
+        "title": data["title"],
+        "pack_id": data["id"],
+        "token": data.get("token", ""),
+        "source_id": data.get("source_id", ""),
+        "source_type": "problem_pack",
+        "subject": data.get("subject", ""),
+        "unitNumber": data.get("unit_number", ""),
+        "unitTitle": data.get("unit_title", ""),
+        "created_at": data.get("created_at", ""),
+    }
+
+
 def list_problem_packs(subject: str = "") -> List[Dict[str, Any]]:
     with conn() as db:
         rows = db.execute("SELECT * FROM problem_packs ORDER BY created_at DESC").fetchall()
@@ -1604,6 +1624,7 @@ def list_problem_packs(subject: str = "") -> List[Dict[str, Any]]:
         questions = pack.get("questions") if isinstance(pack, dict) else []
         result.append({
             "pack_id": data.get("id", ""),
+            "token": data.get("token", ""),
             "title": data.get("title", ""),
             "source_id": data.get("source_id", ""),
             "source_type": "problem_pack",

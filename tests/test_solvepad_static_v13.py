@@ -34,4 +34,13 @@ def test_solvepad_modal_close_bindings_are_null_safe():
     assert "if($('quickLibrary'))$('quickLibrary').onclick" in app
     assert "addEventListener('click',closeModals)" in app
     assert "if(e.target===m)closeModals()" in app
-    assert "app.js?v=5_8" in index
+    assert "app.js?v=5_9" in index
+
+
+def test_solvepad_main_repository_ui_present():
+    app = (ROOT / "static" / "solvepad" / "app.js").read_text(encoding="utf-8")
+    index = (ROOT / "static" / "solvepad" / "index.html").read_text(encoding="utf-8")
+    assert "serverPackList" in index
+    assert "renderServerPackList" in app
+    assert "/problem-packs/" in app
+

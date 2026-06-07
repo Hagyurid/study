@@ -32,23 +32,43 @@ function normalizeImageScale(value) {
   const rounded = Math.round(n / 10) * 10;
   return String(Math.min(100, Math.max(10, rounded)));
 }
+function imageScaleOptions(selected = 60) {
+  const current = normalizeImageScale(selected);
+  return Array.from({ length: 10 }, (_, i) => String((i + 1) * 10))
+    .map(v => `<option value="${v}"${v === current ? ' selected' : ''}>${v}%</option>`)
+    .join('');
+}
+function imageControlHtml(scale = 60) {
+  const safeScale = normalizeImageScale(scale);
+  return `<div class="image-scale-tools" contenteditable="false" aria-label="이미지 크기 조정"><label>크기 <select class="image-scale-select">${imageScaleOptions(safeScale)}</select></label><button type="button" class="image-scale-apply">적용</button></div>`;
+}
+function syncImageScaleControl(figure, scale) {
+  const select = figure?.querySelector?.('.image-scale-select');
+  if (select) select.value = normalizeImageScale(scale);
+}
 function applyImageScale(figure, value) {
   if (!figure) return;
   const scale = normalizeImageScale(value);
   figure.dataset.imageScale = scale;
   figure.style.width = scale + '%';
-  if ($('imageScale')) $('imageScale').value = scale;
+  syncImageScaleControl(figure, scale);
 }
-function setSelectedImageScale(value) {
+function setDefaultImageScale(value) {
   const scale = normalizeImageScale(value);
   localStorage.setItem(IMAGE_SCALE, scale);
-  if (!activeImageFigure || !document.contains(activeImageFigure)) {
-    status('이미지 기본 크기 ' + scale + '%');
-    return;
-  }
-  applyImageScale(activeImageFigure, scale);
+  if ($('imageScale')) $('imageScale').value = scale;
+  status('새 이미지 기본 크기 ' + scale + '%');
+}
+function applyImageScaleToAll() {
+  const scale = normalizeImageScale($('imageScale')?.value || defaultImageScale());
+  localStorage.setItem(IMAGE_SCALE, scale);
+  let count = 0;
+  document.querySelectorAll('#doc figure.image-card').forEach((figure) => {
+    applyImageScale(figure, scale);
+    count += 1;
+  });
   syncMarkdownFromDocument();
-  status('이미지 크기 ' + scale + '%');
+  status(count ? `이미지 ${count}개에 ${scale}% 적용` : '적용할 이미지가 없습니다');
 }
 function restoreImageScale() {
   const scale = normalizeImageScale(localStorage.getItem(IMAGE_SCALE) || '60');
@@ -89,7 +109,7 @@ function imageFigureHtml(alt, src, scale = 60) {
   const safeAlt = attr(alt || '이미지');
   const safeSrc = attr(src || '');
   const safeScale = normalizeImageScale(scale);
-  return `<figure class="image-card" data-md-src="${safeSrc}" data-image-scale="${safeScale}" style="width:${safeScale}%"><button type="button" class="image-delete" contenteditable="false" aria-label="이미지 삭제">삭제</button><img alt="${safeAlt}" src="${safeSrc}" contenteditable="false"><figcaption contenteditable="true">${esc(alt || '이미지')}</figcaption></figure>`;
+  return `<figure class="image-card" data-md-src="${safeSrc}" data-image-scale="${safeScale}" style="width:${safeScale}%"><button type="button" class="image-delete" contenteditable="false" aria-label="이미지 삭제">삭제</button>${imageControlHtml(safeScale)}<img alt="${safeAlt}" src="${safeSrc}" contenteditable="false"><figcaption contenteditable="true">${esc(alt || '이미지')}</figcaption></figure>`;
 }
 function parseSlideMarker(line) {
   const m = String(line || '').trim().match(/^\[\[SLIDE_IMAGE\s+([\s\S]*?)\]\]$/);
@@ -120,7 +140,7 @@ function slideFigureHtml(info) {
   const safeZoom = attr(info.zoom || 2);
   const safeCaption = attr(info.caption || `슬라이드 ${info.sourceId} p.${info.page || 1}`);
   const safeScale = normalizeImageScale(info.size || 60);
-  return `<figure class="image-card slide-card" data-slide-source-id="${safeSource}" data-slide-page="${safePage}" data-slide-zoom="${safeZoom}" data-slide-caption="${safeCaption}" data-image-scale="${safeScale}" style="width:${safeScale}%"><button type="button" class="image-delete" contenteditable="false" aria-label="슬라이드 삭제">삭제</button><div class="slide-placeholder" contenteditable="false">슬라이드 불러오는 중 · ${safeSource} p.${safePage}</div><figcaption contenteditable="true">${esc(info.caption || `슬라이드 ${info.sourceId} p.${info.page || 1}`)}</figcaption></figure>`;
+  return `<figure class="image-card slide-card" data-slide-source-id="${safeSource}" data-slide-page="${safePage}" data-slide-zoom="${safeZoom}" data-slide-caption="${safeCaption}" data-image-scale="${safeScale}" style="width:${safeScale}%"><button type="button" class="image-delete" contenteditable="false" aria-label="슬라이드 삭제">삭제</button>${imageControlHtml(safeScale)}<div class="slide-placeholder" contenteditable="false">슬라이드 불러오는 중 · ${safeSource} p.${safePage}</div><figcaption contenteditable="true">${esc(info.caption || `슬라이드 ${info.sourceId} p.${info.page || 1}`)}</figcaption></figure>`;
 }
 async function hydrateSlideImages() {
   const cards = Array.from(document.querySelectorAll('#doc figure.slide-card'));
@@ -173,6 +193,15 @@ function enhanceImageCards() {
       btn.setAttribute('aria-label', '이미지 삭제');
       btn.textContent = '삭제';
       figure.insertBefore(btn, figure.firstChild);
+    }
+    if (!figure.querySelector('.image-scale-tools')) {
+      const wrap = document.createElement('div');
+      wrap.innerHTML = imageControlHtml(figure.dataset.imageScale || '60');
+      const tools = wrap.firstElementChild;
+      const img = figure.querySelector('img,.slide-placeholder,figcaption');
+      figure.insertBefore(tools, img || figure.firstChild);
+    } else {
+      syncImageScaleControl(figure, figure.dataset.imageScale || '60');
     }
   });
 }
@@ -380,8 +409,81 @@ function blockToMarkdown(el) {
 function documentToMarkdown() { const blocks = Array.from($('doc').childNodes).map(blockToMarkdown).filter(v => v && v.trim()); return blocks.join('\n\n').replace(/\n{3,}/g, '\n\n').trim() + '\n'; }
 function syncMarkdownFromDocument() { if (isRendering) return; $('markdown').value = documentToMarkdown(); status('수정됨'); }
 
+function sourceTypeLabel(type) {
+  return ({
+    generated_note: 'GPT 생성 정리본',
+    external_note: '외부 정리본',
+    exam_cram: '시험 직전 정리',
+    calculator_manual: '계산기 해설'
+  })[type] || type || '미분류';
+}
+function groupNotes(notes) {
+  const subjects = new Map();
+  for (const note of notes || []) {
+    const subjectName = note.subject || '미지정';
+    const typeName = note.source_type || 'unknown';
+    if (!subjects.has(subjectName)) subjects.set(subjectName, new Map());
+    const byType = subjects.get(subjectName);
+    if (!byType.has(typeName)) byType.set(typeName, []);
+    byType.get(typeName).push(note);
+  }
+  return subjects;
+}
+function noteItemHtml(n) {
+  const date = String(n.created_at || n.updated_at || '').replace('T', ' ').replace('Z', '').slice(0, 16);
+  const meta = [sourceTypeLabel(n.source_type), n.source_id, date].filter(Boolean).join(' · ');
+  return `<b>${esc(n.title || '제목 없음')}</b><span>${esc(meta)}</span>`;
+}
+function renderNoteList(notes) {
+  const listEl = $('list');
+  listEl.innerHTML = '';
+  if (!notes.length) {
+    listEl.innerHTML = '<div class="item"><span>저장된 정리본이 없습니다.</span></div>';
+    return;
+  }
+  const grouped = groupNotes(notes);
+  let subjectIndex = 0;
+  for (const [subjectName, byType] of grouped.entries()) {
+    const subjectCount = Array.from(byType.values()).reduce((sum, arr) => sum + arr.length, 0);
+    const subjectDetails = document.createElement('details');
+    subjectDetails.className = 'note-group subject-group';
+    subjectDetails.open = subjectIndex === 0 || grouped.size === 1;
+    subjectDetails.innerHTML = `<summary><span>${esc(subjectName)}</span><em>${subjectCount}개</em></summary>`;
+    const subjectBody = document.createElement('div');
+    subjectBody.className = 'note-group-body';
+    for (const [typeName, items] of byType.entries()) {
+      const typeDetails = document.createElement('details');
+      typeDetails.className = 'note-group type-group';
+      typeDetails.open = byType.size === 1;
+      typeDetails.innerHTML = `<summary><span>${esc(sourceTypeLabel(typeName))}</span><em>${items.length}개</em></summary>`;
+      const typeBody = document.createElement('div');
+      typeBody.className = 'note-group-body note-items';
+      for (const n of items) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'item note-item';
+        btn.onclick = () => openNote(n.source_id);
+        btn.innerHTML = noteItemHtml(n);
+        typeBody.appendChild(btn);
+      }
+      typeDetails.appendChild(typeBody);
+      subjectBody.appendChild(typeDetails);
+    }
+    subjectDetails.appendChild(subjectBody);
+    listEl.appendChild(subjectDetails);
+    subjectIndex += 1;
+  }
+}
 async function listNotes() {
-  try { remember(); const params = new URLSearchParams(); if (subject()) params.set('subject', subject()); if ($('sourceType').value) params.set('source_type', $('sourceType').value); const data = await api('/study/notes?' + params, { headers: headers(false) }); const list = data.notes || []; $('list').innerHTML = list.length ? '' : '<div class="item"><span>저장된 정리본이 없습니다.</span></div>'; for (const n of list) { const div = document.createElement('button'); div.type = 'button'; div.className = 'item'; div.onclick = () => openNote(n.source_id); div.innerHTML = `<b>${esc(n.title)}</b><span>${esc(n.subject || '미지정')} · ${esc(n.source_type)} · ${esc(n.source_id)}</span>`; $('list').appendChild(div); } status('목록 불러옴'); } catch (e) { status('오류'); alert(e.message); }
+  try {
+    remember();
+    const params = new URLSearchParams();
+    if (subject()) params.set('subject', subject());
+    if ($('sourceType').value) params.set('source_type', $('sourceType').value);
+    const data = await api('/study/notes?' + params, { headers: headers(false) });
+    renderNoteList(data.notes || []);
+    status('목록 불러옴');
+  } catch (e) { status('오류'); alert(e.message); }
 }
 async function openNote(id) { try { const data = await api('/study/notes/' + encodeURIComponent(id), { headers: headers(false) }); currentSourceId = id; currentSourceType = data.source?.source_type || 'generated_note'; $('title').value = data.source?.title || ''; await renderMarkdown(data.markdown || ''); status('열림: ' + id); } catch (e) { alert(e.message); } }
 async function newNote(type) { currentSourceId = ''; currentSourceType = type; $('title').value = type === 'exam_cram' ? '시험 직전 정리' : '새 정리본'; const initial = type === 'exam_cram' ? '# 시험 직전 정리\n\n## 1. 직전 암기\n\n## 2. 오답 주의사항\n\n## 3. 주요 개념\n\n## 4. 마지막 확인\n' : '# 새 정리본\n\n내용을 입력하세요. 수식은 $...$ 또는 $$...$$ 형태로 유지됩니다.\n'; await renderMarkdown(initial); status('새 문서'); }
@@ -445,7 +547,7 @@ function wrapRangeWithMark(range) { const mark = document.createElement('mark');
 function highlightSelection() { const sel = window.getSelection(); if (!sel || !sel.rangeCount || sel.isCollapsed) return alert('형광펜 칠할 텍스트를 먼저 드래그해서 선택하세요.'); const range = sel.getRangeAt(0); if (!$('doc').contains(range.commonAncestorContainer)) return alert('정리본 본문 안의 텍스트를 선택하세요.'); wrapRangeWithMark(range); sel.removeAllRanges(); syncMarkdownFromDocument(); }
 function clearHighlight() { document.querySelectorAll('#doc mark').forEach(mark => mark.replaceWith(...mark.childNodes)); syncMarkdownFromDocument(); }
 function insertNodeAtSelection(node) { const sel = window.getSelection(); if (sel && sel.rangeCount && $('doc').contains(sel.getRangeAt(0).commonAncestorContainer)) { const range = sel.getRangeAt(0); range.deleteContents(); range.insertNode(node); range.setStartAfter(node); range.setEndAfter(node); sel.removeAllRanges(); sel.addRange(range); } else $('doc').appendChild(node); }
-function insertImage(ev) { const file = ev.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = () => { const figure = document.createElement('figure'); const scale = defaultImageScale(); figure.className = 'image-card'; figure.dataset.mdSrc = reader.result; figure.dataset.imageScale = scale; figure.style.width = scale + '%'; figure.innerHTML = `<button type="button" class="image-delete" contenteditable="false" aria-label="이미지 삭제">삭제</button><img alt="${attr(file.name)}" src="${attr(reader.result)}" contenteditable="false"><figcaption contenteditable="true">${esc(file.name)}</figcaption>`; insertNodeAtSelection(figure); activeImageFigure = figure; syncMarkdownFromDocument(); }; reader.readAsDataURL(file); ev.target.value = ''; }
+function insertImage(ev) { const file = ev.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = () => { const figure = document.createElement('figure'); const scale = defaultImageScale(); figure.className = 'image-card'; figure.dataset.mdSrc = reader.result; figure.dataset.imageScale = scale; figure.style.width = scale + '%'; figure.innerHTML = `<button type="button" class="image-delete" contenteditable="false" aria-label="이미지 삭제">삭제</button>${imageControlHtml(scale)}<img alt="${attr(file.name)}" src="${attr(reader.result)}" contenteditable="false"><figcaption contenteditable="true">${esc(file.name)}</figcaption>`; insertNodeAtSelection(figure); activeImageFigure = figure; syncMarkdownFromDocument(); }; reader.readAsDataURL(file); ev.target.value = ''; }
 async function insertSlideImage() {
   try {
     const sourceId = prompt('삽입할 강의자료 PDF source_id를 입력하세요.\n파일 관리/상태판에서 확인할 수 있습니다.');
@@ -478,6 +580,18 @@ $('doc').addEventListener('click', (ev) => {
     activeImageFigure = figure;
     applyImageScale(figure, figure.dataset.imageScale || figure.style.width || '60');
   }
+  const scaleApply = ev.target.closest?.('.image-scale-apply');
+  if (scaleApply && $('doc').contains(scaleApply)) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    const targetFigure = scaleApply.closest('figure.image-card');
+    const value = targetFigure?.querySelector('.image-scale-select')?.value || targetFigure?.dataset.imageScale || '60';
+    applyImageScale(targetFigure, value);
+    activeImageFigure = targetFigure;
+    syncMarkdownFromDocument();
+    status('이미지 크기 ' + normalizeImageScale(value) + '%');
+    return;
+  }
   const btn = ev.target.closest?.('.image-delete');
   if (!btn || !$('doc').contains(btn)) return;
   ev.preventDefault();
@@ -488,6 +602,17 @@ $('doc').addEventListener('click', (ev) => {
     targetFigure.remove();
     syncMarkdownFromDocument();
   }
+});
+$('doc').addEventListener('change', (ev) => {
+  const select = ev.target.closest?.('.image-scale-select');
+  if (!select || !$('doc').contains(select)) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  const figure = select.closest('figure.image-card');
+  applyImageScale(figure, select.value);
+  activeImageFigure = figure;
+  syncMarkdownFromDocument();
+  status('이미지 크기 ' + normalizeImageScale(select.value) + '%');
 });
 $('doc').addEventListener('input', syncMarkdownFromDocument);
 $('doc').addEventListener('paste', (ev) => { ev.preventDefault(); const text = ev.clipboardData?.getData('text/plain') || ''; document.execCommand('insertText', false, text); });

@@ -178,6 +178,15 @@ def test_problem_pack_flow():
     assert fetched.status_code == 200
     assert fetched.json()["pack"]["packId"] == "test-pack"
 
+    listed = client.get("/problem-packs")
+    assert listed.status_code == 200
+    pack_id = response.json()["pack_id"]
+    assert any(p["pack_id"] == pack_id for p in listed.json()["problem_packs"])
+
+    by_id = client.get(f"/problem-packs/{pack_id}")
+    assert by_id.status_code == 200
+    assert by_id.json()["pack"]["packId"] == "test-pack"
+
 
 
 
@@ -197,8 +206,8 @@ def test_problem_pack_json_fallback_and_open_url():
     assert response.status_code == 200
     data = response.json()
     assert data["open_url"] == data["import_url"] == data["solvepad_url"]
-    assert "/static/solvepad/index.html" in data["open_url"]
-    assert "importToken=" in data["open_url"]
+    assert data["open_url"].endswith("/static/solvepad/index.html")
+    assert "importToken=" in data["legacy_import_url"]
     assert client.get(f"/packs/{data['token']}").json()["pack"]["packId"] == "test-pack-json-fallback"
 
 
@@ -464,7 +473,8 @@ def test_calculator_blueprint_json_fallback_and_open_url():
     assert response.status_code == 200
     data = response.json()
     assert data["open_url"] == data["studio_url"] == data["casio_url"]
-    assert "/static/casio/index.html?projectId=" in data["open_url"]
+    assert data["open_url"].endswith("/static/casio/index.html")
+    assert "/static/casio/index.html?projectId=" in data["shortcut_url"]
     assert data["download_url"].endswith("/download.zip")
     fetched = client.get(f"/calculator/projects/{data['calculator_project_id']}")
     assert fetched.status_code == 200
@@ -1051,3 +1061,14 @@ def test_study_note_unit_number_creates_unit_specific_series_id():
     assert first.json()["series_id"] != second.json()["series_id"]
     assert "11-1" in first.json()["series_id"]
     assert "13-1" in second.json()["series_id"]
+
+
+def test_study_static_right_rail_and_image_controls():
+    root = Path(__file__).resolve().parents[1]
+    index = (root / "static" / "study" / "index.html").read_text(encoding="utf-8")
+    app_js = (root / "static" / "study" / "app.js").read_text(encoding="utf-8")
+    styles = (root / "static" / "study" / "styles.css").read_text(encoding="utf-8")
+    assert "study-right-rail" in index
+    assert "applyImageScaleToAll" in app_js
+    assert "image-scale-tools" in app_js
+    assert "height:auto" in styles and "object-fit:contain" in styles
