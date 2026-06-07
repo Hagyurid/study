@@ -52,7 +52,7 @@ function protectMath(text) {
   out = out.replace(/\\\(([^\n]+?)\\\)/g, (_, body) => put(`\\(${body}\\)`, 'math-inline'));
   return { out, stash };
 }
-function restoreStash(html, stash) { return html.replace(/\\u0000M(\d+)\\u0000/g, (_, i) => stash[Number(i)] || ''); }
+function restoreStash(html, stash) { return html.replace(new RegExp('\\u0000M(\\d+)\\u0000', 'g'), (_, i) => stash[Number(i)] || ''); }
 
 function imageFigureHtml(alt, src) {
   const safeAlt = attr(alt || '이미지');
@@ -80,8 +80,89 @@ function inlineMarkdownToHtml(text) {
   html = html.replace(/&lt;mark&gt;([\s\S]*?)&lt;\/mark&gt;/g, '<mark>$1</mark>');
   return restoreStash(html, stash);
 }
+
+function normalizeMarkdownArtifacts(md) {
+  return String(md || '')
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((line) => /^M\d+$/.test(line.trim()) ? '없음' : line)
+    .join('\n');
+}
+function isTableSeparator(line) {
+  return /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line || '');
+}
+function isTableRow(line) {
+  return /^\s*\|.*\|\s*$/.test(line || '');
+}
+function splitTableRow(line) {
+  let raw = String(line || '').trim();
+  if (raw.startsWith('|')) raw = raw.slice(1);
+  if (raw.endsWith('|')) raw = raw.slice(0, -1);
+  return raw.split('|').map((cell) => cell.trim());
+}
+function tableToHtml(tableLines) {
+  const header = splitTableRow(tableLines[0]);
+  const bodyLines = tableLines.slice(2).filter(isTableRow);
+  const head = `<thead><tr>${header.map((cell) => `<th>${inlineMarkdownToHtml(cell)}</th>`).join('')}</tr></thead>`;
+  const body = bodyLines.length
+    ? `<tbody>${bodyLines.map((line) => `<tr>${splitTableRow(line).map((cell) => `<td>${inlineMarkdownToHtml(cell)}</td>`).join('')}</tr>`).join('')}</tbody>`
+    : '<tbody></tbody>';
+  return `<div class="table-wrap"><table>${head}${body}</table></div>`;
+}
+
+function removeImageInsertionPlanSections(md) {
+  const lines = String(md || '').split('\n');
+  const out = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    const trimmed = lines[i].trim();
+    const isImagePlanHeading = /^#{1,6}\s*\d*\.?\s*(이미지|도표|표).*삽입\s*위치/.test(trimmed)
+      || /^#{1,6}\s*\d*\.?\s*이미지\s*\/\s*도표\s*\/\s*표\s*삽입\s*위치/.test(trimmed);
+    if (isImagePlanHeading) {
+      i += 1;
+      while (i < lines.length && !/^#{1,3}\s+/.test(lines[i].trim())) i += 1;
+      i -= 1;
+      continue;
+    }
+    if (/^\[이미지\s*삽입\s*위치\s+IMG[-_ ]?\d+\]/.test(trimmed)) {
+      i += 1;
+      while (i < lines.length && (lines[i].trim() === '' || /^[-*]\s+/.test(lines[i].trim()))) i += 1;
+      i -= 1;
+      continue;
+    }
+    out.push(lines[i]);
+  }
+  return out.join('\n').replace(/\n{3,}/g, '\n\n');
+}
+function visibleText(value) {
+  return String(value || '').replace(/[\s\u00a0\u200b\u200c\u200d\ufeff]+/g, ' ').trim();
+}
+function isDecorativeCodeBlock(code) {
+  const visible = visibleText(code);
+  if (!visible) return true;
+  if (/^[─━_\-=|+•·.\[\](){}\\/]+$/.test(visible)) return true;
+  return false;
+}
+function looksLikeRealCode(code, lang) {
+  const l = String(lang || '').trim().toLowerCase();
+  if (['python','py','javascript','js','typescript','ts','json','yaml','yml','html','css','sql','bash','sh','xml','toml','ini','prgm','casio'].includes(l)) return true;
+  const c = String(code || '');
+  if (/^\s*[{\[]/.test(c) && /[}\]]\s*$/.test(c)) return true;
+  if (/\b(function|class|def|import|from|const|let|var|return|SELECT|INSERT|UPDATE|DELETE|CREATE|for\s*\(|while\s*\()\b/.test(c)) return true;
+  if (/[{};]\s*$/.test(c.trim()) && /[=<>]/.test(c)) return true;
+  return false;
+}
+function codeBlockToHtml(code, lang = '') {
+  if (isDecorativeCodeBlock(code)) return '';
+  const normalized = String(code || '').replace(/\n{3,}/g, '\n\n').trim();
+  if (!looksLikeRealCode(normalized, lang)) {
+    const rows = normalized.split('\n').map((line) => `<div>${inlineMarkdownToHtml(line || ' ')}</div>`).join('');
+    return `<div class="flow-box">${rows}</div>`;
+  }
+  return `<pre class="code-block"><code>${esc(normalized)}</code></pre>`;
+}
+
 function markdownToHtml(md) {
-  md = String(md || '').replace(/\r\n/g, '\n');
+  md = normalizeMarkdownArtifacts(md);
   const blocks = [];
   const lines = md.split('\n');
   let i = 0;
@@ -89,11 +170,13 @@ function markdownToHtml(md) {
     const line = lines[i];
     if (!line.trim()) { i += 1; continue; }
     if (line.startsWith('```')) {
+      const lang = line.replace(/^```/, '').trim();
       const code = [];
       i += 1;
       while (i < lines.length && !lines[i].startsWith('```')) { code.push(lines[i]); i += 1; }
       i += 1;
-      blocks.push(`<pre><code>${esc(code.join('\n'))}</code></pre>`);
+      const block = codeBlockToHtml(code.join('\n'), lang);
+      if (block) blocks.push(block);
       continue;
     }
     const image = line.match(/^!\[([^\]]*)\]\((.+)\)$/);
@@ -101,7 +184,14 @@ function markdownToHtml(md) {
       blocks.push(imageFigureHtml(image[1] || '이미지', image[2]));
       i += 1; continue;
     }
-    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    if (isTableRow(line) && i + 1 < lines.length && isTableSeparator(lines[i + 1])) {
+      const tableLines = [line, lines[i + 1]];
+      i += 2;
+      while (i < lines.length && isTableRow(lines[i])) { tableLines.push(lines[i]); i += 1; }
+      blocks.push(tableToHtml(tableLines));
+      continue;
+    }
+    const heading = line.match(/^(#{1,6})\s+(.+)$/);
     if (heading) { const level = heading[1].length; blocks.push(`<h${level}>${inlineMarkdownToHtml(heading[2])}</h${level}>`); i += 1; continue; }
     if (/^[-*]\s+/.test(line)) {
       const items = [];
@@ -109,13 +199,13 @@ function markdownToHtml(md) {
       blocks.push(`<ul>${items.join('')}</ul>`); continue;
     }
     const para = [line]; i += 1;
-    while (i < lines.length && lines[i].trim() && !/^(#{1,3})\s+/.test(lines[i]) && !/^[-*]\s+/.test(lines[i]) && !lines[i].startsWith('```') && !/^!\[/.test(lines[i])) { para.push(lines[i]); i += 1; }
+    while (i < lines.length && lines[i].trim() && !/^(#{1,6})\s+/.test(lines[i]) && !/^[-*]\s+/.test(lines[i]) && !lines[i].startsWith('```') && !/^!\[/.test(lines[i])) { para.push(lines[i]); i += 1; }
     blocks.push(`<p>${inlineMarkdownToHtml(para.join('\n')).replace(/\n/g, '<br>')}</p>`);
   }
   return blocks.join('\n') || '<p class="placeholder">왼쪽 목록에서 정리본을 열거나 새 정리본을 만드세요.</p>';
 }
 async function typesetDocument() { if (window.MathJax?.typesetPromise) { try { await MathJax.typesetPromise([$('doc')]); } catch (_) {} } }
-async function renderMarkdown(md) { isRendering = true; $('markdown').value = String(md || ''); $('doc').innerHTML = markdownToHtml(md); enhanceImageCards(); await typesetDocument(); isRendering = false; }
+async function renderMarkdown(md) { isRendering = true; md = normalizeMarkdownArtifacts(md); $('markdown').value = String(md || ''); $('doc').innerHTML = markdownToHtml(md); enhanceImageCards(); await typesetDocument(); isRendering = false; }
 
 function inlineToMarkdown(node) {
   if (node.nodeType === Node.TEXT_NODE) return node.nodeValue || '';
@@ -130,6 +220,19 @@ function inlineToMarkdown(node) {
   if (tag === 'mark') return `<mark>${body}</mark>`;
   return body;
 }
+
+function tableElementToMarkdown(table) {
+  const rows = Array.from(table.querySelectorAll('tr'));
+  if (!rows.length) return '';
+  const matrix = rows.map((tr) => Array.from(tr.children).map((cell) => inlineToMarkdown(cell).replace(/\n/g, ' ').trim()));
+  const colCount = Math.max(...matrix.map((row) => row.length));
+  const pad = (row) => Array.from({ length: colCount }, (_, idx) => row[idx] || '');
+  const header = pad(matrix[0]);
+  const sep = header.map(() => '---');
+  const body = matrix.slice(1).map(pad);
+  return [header, sep, ...body].map((row) => '| ' + row.join(' | ') + ' |').join('\n');
+}
+
 function blockToMarkdown(el) {
   if (el.nodeType === Node.TEXT_NODE) return (el.nodeValue || '').trim();
   if (el.nodeType !== Node.ELEMENT_NODE) return '';
@@ -138,8 +241,14 @@ function blockToMarkdown(el) {
   if (tag === 'h1') return '# ' + inlineToMarkdown(el);
   if (tag === 'h2') return '## ' + inlineToMarkdown(el);
   if (tag === 'h3') return '### ' + inlineToMarkdown(el);
+  if (tag === 'h4') return '#### ' + inlineToMarkdown(el);
+  if (tag === 'h5') return '##### ' + inlineToMarkdown(el);
+  if (tag === 'h6') return '###### ' + inlineToMarkdown(el);
+  if (tag === 'table') return tableElementToMarkdown(el);
+  if (tag === 'div' && el.classList.contains('table-wrap')) { const table = el.querySelector('table'); return table ? tableElementToMarkdown(table) : ''; }
   if (tag === 'ul') return Array.from(el.children).filter(li => li.tagName.toLowerCase() === 'li').map(li => '- ' + inlineToMarkdown(li)).join('\n');
   if (tag === 'ol') return Array.from(el.children).filter(li => li.tagName.toLowerCase() === 'li').map((li, idx) => `${idx + 1}. ${inlineToMarkdown(li)}`).join('\n');
+  if (tag === 'div' && el.classList.contains('flow-box')) return inlineToMarkdown(el).trim();
   if (tag === 'pre') return '```\n' + (el.textContent || '') + '\n```';
   if (tag === 'figure') { const img = el.querySelector('img'); const cap = el.querySelector('figcaption')?.textContent?.trim() || img?.alt || '이미지'; const src = el.dataset.mdSrc || img?.src || ''; return src ? `![${cap}](${src})` : ''; }
   if (tag === 'img') return `![${el.alt || '이미지'}](${el.src})`;
