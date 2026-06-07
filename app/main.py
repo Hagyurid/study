@@ -40,7 +40,7 @@ from app.modules.prgm_engine import generate_txt_files, validate_blueprint
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "static"
 
-app = FastAPI(title="LectureNote Suite", version="2.2.1")
+app = FastAPI(title="LectureNote Suite", version="2.2.4")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"], allow_credentials=False)
 app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
 init_db()
@@ -105,6 +105,11 @@ def _page(title: str, body: str) -> HTMLResponse:
     qs("[data-key-status]").forEach(el => el.textContent = msg || "");
   }}
   function fill(){{
+    const params = new URLSearchParams(window.location.search);
+    const queryKey = params.get("action_key") || "";
+    const querySubject = params.get("subject") || "";
+    if (queryKey) localStorage.setItem(KEY, queryKey);
+    if (querySubject) localStorage.setItem(SUBJECT, querySubject);
     const savedKey = localStorage.getItem(KEY) || "";
     const savedSubject = localStorage.getItem(SUBJECT) || "";
     qs("input[name='action_key']").forEach(input => {{
@@ -113,7 +118,7 @@ def _page(title: str, body: str) -> HTMLResponse:
     qs("input[name='subject']").forEach(input => {{
       if (savedSubject && !input.value) input.value = savedSubject;
     }});
-    if (savedKey) setStatus("이 브라우저에 저장된 액션 키를 자동 입력했습니다.");
+    if (savedKey) setStatus("저장된 액션 키를 자동 입력했습니다.");
   }}
   function remember(){{
     qs("input[name='action_key']").forEach(input => {{
@@ -312,14 +317,88 @@ def _markdown_to_docx_bytes(title: str, markdown: str) -> BytesIO:
 
 @app.get("/health")
 def health():
-    return {"ok": True, "service": "lecturenote-suite", "version": "2.2.1"}
+    return {"ok": True, "service": "lecturenote-suite", "version": "2.2.4"}
 
 
 @app.get("/", response_class=HTMLResponse)
 def root():
     return _page("LectureNote Suite", """
-<section class="top"><div><h1>LectureNote Suite</h1><p>강의자료, 교재, 전사본, 시험지, 외부 정리본을 한 곳에 올리고 GPT Actions와 연결합니다.</p><div class="nav"><a class="btn" href="/upload">자료 업로드</a><a class="btn secondary" href="/static/study/index.html">정리본 보기</a><a class="btn secondary" href="/sources/manage">파일 관리</a><a class="btn secondary" href="/dashboard">상태판</a><a class="btn secondary" href="/static/solvepad/index.html">SolvePad</a><a class="btn secondary" href="/static/casio/index.html">계산기 PRGM</a></div></div></section>
-<section class="grid"><div class="card"><h2>통합 자료 업로드</h2><p>강의자료, 교재, 전사본, 시험지, GPT 생성 정리본, 외부 정리본을 자료 유형으로 구분해 한 화면에서 올립니다. 제목은 파일명으로 자동 지정됩니다.</p><div class="actions"><a class="btn" href="/upload">열기</a></div></div><div class="card"><h2>정리본 / Study Note</h2><p>GPT 생성 정리본, 외부 정리본, 시험 직전 정리, 계산기 사용법을 열고 수정·저장·내보내기합니다.</p><div class="actions"><a class="btn" href="/static/study/index.html">열기</a></div></div><div class="card"><h2>SolvePad 문제풀이</h2><p>GPT가 만든 문제팩을 iPad에서 불러오고 필기 풀이를 저장합니다.</p><div class="actions"><a class="btn" href="/static/solvepad/index.html">열기</a></div></div><div class="card"><h2>CASIO 계산기 PRGM</h2><p>GPT가 생성한 계산기 코드와 사용법/구조 해설을 확인합니다.</p><div class="actions"><a class="btn" href="/static/casio/index.html">열기</a></div></div><div class="card"><h2>관리 / 상태</h2><p>업로드 파일 삭제, 매핑 현황, API 문서를 확인합니다.</p><div class="actions"><a class="btn secondary" href="/sources/manage">파일 관리</a><a class="btn secondary" href="/dashboard">상태판</a><a class="btn secondary" href="/mapping/status">매핑</a><a class="btn secondary" href="/docs">API</a></div></div></section>""")
+<section class="top"><div><h1>LectureNote Suite</h1><p>강의자료, 교재, 전사본, 시험지, 외부 정리본을 한 곳에 올리고 GPT Actions와 연결합니다.</p><div class="nav"><a class="btn" href="/upload">자료 업로드</a><a class="btn secondary" href="/static/study/index.html">정리본 보기</a><a class="btn secondary" href="/sources/manage">파일 관리</a><a class="btn secondary" href="/status">상태판</a><a class="btn secondary" href="/static/solvepad/index.html">SolvePad</a><a class="btn secondary" href="/static/casio/index.html">계산기 PRGM</a></div></div></section>
+<section class="grid"><div class="card"><h2>통합 자료 업로드</h2><p>강의자료, 교재, 전사본, 시험지, GPT 생성 정리본, 외부 정리본을 자료 유형으로 구분해 한 화면에서 올립니다. 제목은 파일명으로 자동 지정됩니다.</p><div class="actions"><a class="btn" href="/upload">열기</a></div></div><div class="card"><h2>정리본 / Study Note</h2><p>GPT 생성 정리본, 외부 정리본, 시험 직전 정리, 계산기 사용법을 열고 수정·저장·내보내기합니다.</p><div class="actions"><a class="btn" href="/static/study/index.html">열기</a></div></div><div class="card"><h2>SolvePad 문제풀이</h2><p>GPT가 만든 문제팩을 iPad에서 불러오고 필기 풀이를 저장합니다.</p><div class="actions"><a class="btn" href="/static/solvepad/index.html">열기</a></div></div><div class="card"><h2>CASIO 계산기 PRGM</h2><p>GPT가 생성한 계산기 코드와 사용법/구조 해설을 확인합니다.</p><div class="actions"><a class="btn" href="/static/casio/index.html">열기</a></div></div><div class="card"><h2>관리 / 상태</h2><p>업로드 파일 삭제, 매핑 현황, API 문서를 확인합니다.</p><div class="actions"><a class="btn secondary" href="/sources/manage">파일 관리</a><a class="btn secondary" href="/status">상태판</a><a class="btn secondary" href="/status">매핑</a><a class="btn secondary" href="/docs">API</a></div></div></section>""")
+
+
+
+@app.get("/status", response_class=HTMLResponse)
+def status_page():
+    return _page("LectureNote Suite 상태판", """
+<section class="top"><div><h1>상태판 / 매핑 현황</h1><p>보호된 API를 직접 열지 않고, 저장된 액션 키로 자료 상태와 매핑 현황을 확인합니다.</p></div><div class="nav"><a class="btn secondary" href="/">홈</a><a class="btn secondary" href="/sources/manage">파일 관리</a><a class="btn secondary" href="/static/study/index.html">정리본 보기</a></div></section>
+<section class="card"><label>액션 키</label><input name="action_key" type="password" placeholder="처음 한 번만 입력하면 이 브라우저에 자동 저장" autocomplete="off"/><div class="keybox"><span class="key-status" data-key-status></span><button class="btn secondary" type="button" data-clear-key>저장된 키 지우기</button></div><label>과목명</label><input name="subject" placeholder="예: CRE"/><div class="actions"><button type="button" id="loadStatus">상태 불러오기</button><a class="btn secondary" href="/docs">API 문서</a></div><div class="hint">홈 화면의 상태판/매핑 버튼은 이 화면을 통해 확인합니다. 직접 /dashboard 또는 /mapping/status를 열면 브라우저가 인증 헤더를 보낼 수 없어 Invalid action key가 날 수 있습니다.</div></section>
+<section class="grid" style="margin-top:16px"><div class="card"><h2>요약</h2><div id="dashboardOut" class="muted">상태를 불러오세요.</div></div><div class="card"><h2>매핑 현황</h2><div id="mappingOut" class="muted">매핑 현황을 불러오세요.</div></div></section>
+<script>
+(function(){
+  function el(id){return document.getElementById(id);}
+  function key(){return (document.querySelector("input[name='action_key']")?.value || "").trim();}
+  function subject(){return (document.querySelector("input[name='subject']")?.value || "").trim();}
+  function esc(v){return String(v ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
+  function headers(){return {Authorization: 'Bearer ' + key()};}
+  function renderJsonBox(obj){
+    return '<pre style="white-space:pre-wrap;overflow:auto;max-height:480px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:14px;padding:12px">' + esc(JSON.stringify(obj, null, 2)) + '</pre>';
+  }
+  function dashHtml(data){
+    const sources = data.sources || data.source_summary || data.sourcesByType || {};
+    const notes = data.study_notes || data.notes || [];
+    const runs = data.workflow_runs || data.runs || [];
+    const calc = data.calculator_projects || [];
+    let html = '<ul>';
+    html += '<li>정리본: ' + esc(notes.length ?? 0) + '개</li>';
+    html += '<li>계산기 프로젝트: ' + esc(calc.length ?? 0) + '개</li>';
+    html += '<li>진행 작업: ' + esc(runs.length ?? 0) + '개</li>';
+    html += '<li>자료 요약: ' + esc(typeof sources === 'object' ? Object.keys(sources).length + '개 항목' : sources) + '</li>';
+    html += '</ul>';
+    return html + '<details><summary>원본 JSON</summary>' + renderJsonBox(data) + '</details>';
+  }
+  function mappingHtml(data){
+    const units = data.units || data.mapped_units || data.unit_maps || [];
+    const unmapped = data.unmapped_sources || data.unmapped || [];
+    let html = '<ul>';
+    html += '<li>매핑 단원/맵: ' + esc(units.length ?? 0) + '개</li>';
+    html += '<li>미매핑 자료: ' + esc(unmapped.length ?? 0) + '개</li>';
+    html += '</ul>';
+    return html + '<details><summary>원본 JSON</summary>' + renderJsonBox(data) + '</details>';
+  }
+  async function load(){
+    const k = key();
+    if(!k){
+      alert('액션 키를 입력하세요. Render 환경변수 ACTION_API_KEY와 같은 값입니다.');
+      return;
+    }
+    if(subject()) localStorage.setItem('lecturenote_subject', subject());
+    localStorage.setItem('lecturenote_action_key', k);
+    el('dashboardOut').textContent = '불러오는 중...';
+    el('mappingOut').textContent = '불러오는 중...';
+    const qs = subject() ? '?subject=' + encodeURIComponent(subject()) : '';
+    try {
+      const [dashRes, mapRes] = await Promise.all([
+        fetch('/dashboard' + qs, {headers: headers()}),
+        fetch('/mapping/status' + qs, {headers: headers()})
+      ]);
+      if(!dashRes.ok) throw new Error(await dashRes.text());
+      if(!mapRes.ok) throw new Error(await mapRes.text());
+      const dash = await dashRes.json();
+      const map = await mapRes.json();
+      el('dashboardOut').innerHTML = dashHtml(dash);
+      el('mappingOut').innerHTML = mappingHtml(map);
+    } catch(e) {
+      el('dashboardOut').textContent = '오류';
+      el('mappingOut').textContent = '오류';
+      alert(String(e.message || e));
+    }
+  }
+  document.addEventListener('DOMContentLoaded', function(){
+    el('loadStatus')?.addEventListener('click', load);
+  });
+})();
+</script>""")
 
 
 @app.get("/upload", response_class=HTMLResponse)

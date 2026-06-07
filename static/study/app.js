@@ -5,7 +5,7 @@ let currentSourceId = '';
 let currentSourceType = 'generated_note';
 let isRendering = false;
 
-function actionKey() { return $('key').value.trim(); }
+function actionKey() { return ($('key')?.value || '').trim(); }
 function subject() { return $('subject').value.trim(); }
 function headers(json = true) {
   const h = {};
@@ -14,11 +14,33 @@ function headers(json = true) {
   return h;
 }
 function remember() { if (actionKey()) localStorage.setItem(KEY, actionKey()); if (subject()) localStorage.setItem(SUBJECT, subject()); }
-function restore() { $('key').value = localStorage.getItem(KEY) || ''; $('subject').value = localStorage.getItem(SUBJECT) || ''; }
+function restore() {
+  const params = new URLSearchParams(window.location.search);
+  const queryKey = params.get('action_key') || '';
+  const querySubject = params.get('subject') || '';
+  if (queryKey) localStorage.setItem(KEY, queryKey);
+  if (querySubject) localStorage.setItem(SUBJECT, querySubject);
+  $('key').value = localStorage.getItem(KEY) || '';
+  $('subject').value = localStorage.getItem(SUBJECT) || '';
+}
 function status(text) { $('saveState').textContent = text; }
 function esc(value) { return String(value ?? '').replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m])); }
 function attr(value) { return esc(value).replace(/`/g, '&#96;'); }
-async function api(path, opt = {}) { remember(); const res = await fetch(path, opt); if (!res.ok) throw new Error(await res.text()); return await res.json(); }
+async function api(path, opt = {}) {
+  remember();
+  if (!actionKey()) {
+    throw new Error('액션 키를 입력하세요. 업로드 화면에서 쓰는 ACTION_API_KEY와 같은 값입니다.');
+  }
+  opt.headers = opt.headers || headers(false);
+  const res = await fetch(path, opt);
+  if (!res.ok) {
+    let detail = await res.text();
+    try { detail = JSON.parse(detail).detail || detail; } catch (_) {}
+    if (String(detail).includes('Invalid action key')) detail = '액션 키가 맞지 않습니다. Render의 ACTION_API_KEY와 같은 값인지 확인하세요.';
+    throw new Error(detail);
+  }
+  return await res.json();
+}
 
 function protectMath(text) {
   const stash = [];
@@ -31,6 +53,25 @@ function protectMath(text) {
   return { out, stash };
 }
 function restoreStash(html, stash) { return html.replace(/\\u0000M(\d+)\\u0000/g, (_, i) => stash[Number(i)] || ''); }
+
+function imageFigureHtml(alt, src) {
+  const safeAlt = attr(alt || '이미지');
+  const safeSrc = attr(src || '');
+  return `<figure class="image-card" data-md-src="${safeSrc}"><button type="button" class="image-delete" contenteditable="false" aria-label="이미지 삭제">삭제</button><img alt="${safeAlt}" src="${safeSrc}" contenteditable="false"><figcaption contenteditable="true">${esc(alt || '이미지')}</figcaption></figure>`;
+}
+function enhanceImageCards() {
+  document.querySelectorAll('#doc figure.image-card').forEach((figure) => {
+    if (!figure.querySelector('.image-delete')) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'image-delete';
+      btn.setAttribute('contenteditable', 'false');
+      btn.setAttribute('aria-label', '이미지 삭제');
+      btn.textContent = '삭제';
+      figure.insertBefore(btn, figure.firstChild);
+    }
+  });
+}
 function inlineMarkdownToHtml(text) {
   const { out, stash } = protectMath(text);
   let html = esc(out);
@@ -57,7 +98,7 @@ function markdownToHtml(md) {
     }
     const image = line.match(/^!\[([^\]]*)\]\((.+)\)$/);
     if (image) {
-      blocks.push(`<figure class="image-card" data-md-src="${attr(image[2])}"><img alt="${attr(image[1] || '이미지')}" src="${attr(image[2])}" contenteditable="false"><figcaption contenteditable="true">${esc(image[1] || '이미지')}</figcaption></figure>`);
+      blocks.push(imageFigureHtml(image[1] || '이미지', image[2]));
       i += 1; continue;
     }
     const heading = line.match(/^(#{1,3})\s+(.+)$/);
@@ -74,7 +115,7 @@ function markdownToHtml(md) {
   return blocks.join('\n') || '<p class="placeholder">왼쪽 목록에서 정리본을 열거나 새 정리본을 만드세요.</p>';
 }
 async function typesetDocument() { if (window.MathJax?.typesetPromise) { try { await MathJax.typesetPromise([$('doc')]); } catch (_) {} } }
-async function renderMarkdown(md) { isRendering = true; $('markdown').value = String(md || ''); $('doc').innerHTML = markdownToHtml(md); await typesetDocument(); isRendering = false; }
+async function renderMarkdown(md) { isRendering = true; $('markdown').value = String(md || ''); $('doc').innerHTML = markdownToHtml(md); enhanceImageCards(); await typesetDocument(); isRendering = false; }
 
 function inlineToMarkdown(node) {
   if (node.nodeType === Node.TEXT_NODE) return node.nodeValue || '';
@@ -119,13 +160,25 @@ function wrapRangeWithMark(range) { const mark = document.createElement('mark');
 function highlightSelection() { const sel = window.getSelection(); if (!sel || !sel.rangeCount || sel.isCollapsed) return alert('형광펜 칠할 텍스트를 먼저 드래그해서 선택하세요.'); const range = sel.getRangeAt(0); if (!$('doc').contains(range.commonAncestorContainer)) return alert('정리본 본문 안의 텍스트를 선택하세요.'); wrapRangeWithMark(range); sel.removeAllRanges(); syncMarkdownFromDocument(); }
 function clearHighlight() { document.querySelectorAll('#doc mark').forEach(mark => mark.replaceWith(...mark.childNodes)); syncMarkdownFromDocument(); }
 function insertNodeAtSelection(node) { const sel = window.getSelection(); if (sel && sel.rangeCount && $('doc').contains(sel.getRangeAt(0).commonAncestorContainer)) { const range = sel.getRangeAt(0); range.deleteContents(); range.insertNode(node); range.setStartAfter(node); range.setEndAfter(node); sel.removeAllRanges(); sel.addRange(range); } else $('doc').appendChild(node); }
-function insertImage(ev) { const file = ev.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = () => { const figure = document.createElement('figure'); figure.className = 'image-card'; figure.dataset.mdSrc = reader.result; figure.innerHTML = `<img alt="${attr(file.name)}" src="${attr(reader.result)}" contenteditable="false"><figcaption contenteditable="true">${esc(file.name)}</figcaption>`; insertNodeAtSelection(figure); syncMarkdownFromDocument(); }; reader.readAsDataURL(file); ev.target.value = ''; }
+function insertImage(ev) { const file = ev.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = () => { const figure = document.createElement('figure'); figure.className = 'image-card'; figure.dataset.mdSrc = reader.result; figure.innerHTML = `<button type="button" class="image-delete" contenteditable="false" aria-label="이미지 삭제">삭제</button><img alt="${attr(file.name)}" src="${attr(reader.result)}" contenteditable="false"><figcaption contenteditable="true">${esc(file.name)}</figcaption>`; insertNodeAtSelection(figure); syncMarkdownFromDocument(); }; reader.readAsDataURL(file); ev.target.value = ''; }
 async function toggleSource() { const dialog = $('sourceDialog'); if (dialog.open) { await renderMarkdown($('markdown').value); dialog.close(); } else { syncMarkdownFromDocument(); dialog.showModal(); } }
 function downloadMd() { if (!currentSourceId) return alert('먼저 저장하세요.'); location.href = '/study/notes/' + encodeURIComponent(currentSourceId) + '/download.md'; }
 function downloadDocx() { if (!currentSourceId) return alert('먼저 저장하세요.'); window.open('/study/notes/' + encodeURIComponent(currentSourceId) + '/download.docx', '_blank'); }
 function printPdf() { if (!currentSourceId) return alert('먼저 저장하세요.'); window.open('/study/notes/' + encodeURIComponent(currentSourceId) + '/print', '_blank'); }
 
+
+$('doc').addEventListener('click', (ev) => {
+  const btn = ev.target.closest?.('.image-delete');
+  if (!btn || !$('doc').contains(btn)) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  const figure = btn.closest('figure.image-card');
+  if (figure && confirm('이 이미지를 삭제할까요?')) {
+    figure.remove();
+    syncMarkdownFromDocument();
+  }
+});
 $('doc').addEventListener('input', syncMarkdownFromDocument);
 $('doc').addEventListener('paste', (ev) => { ev.preventDefault(); const text = ev.clipboardData?.getData('text/plain') || ''; document.execCommand('insertText', false, text); });
 $('markdown').addEventListener('input', () => status('원문 수정됨'));
-restore(); renderMarkdown(''); listNotes();
+restore(); renderMarkdown(''); if (actionKey()) listNotes(); else status('액션 키 입력 후 목록 불러오기');
