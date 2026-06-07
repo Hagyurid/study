@@ -40,7 +40,7 @@ from app.modules.prgm_engine import generate_txt_files, validate_blueprint
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "static"
 
-app = FastAPI(title="LectureNote Suite", version="2.2.6")
+app = FastAPI(title="LectureNote Suite", version="2.2.7")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"], allow_credentials=False)
 app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
 init_db()
@@ -218,21 +218,112 @@ def _safe_download_headers(filename: str, mime_suffix: str) -> dict:
     return {"Content-Disposition": f'attachment; filename="{base}"; filename*=UTF-8\'\'{utf8_name}'}
 
 
+
+def _md_is_table_row(line: str) -> bool:
+    return bool(re.match(r"^\s*\|.*\|\s*$", line or ""))
+
+
+def _md_is_table_separator(line: str) -> bool:
+    return bool(re.match(r"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$", line or ""))
+
+
+def _md_split_table_row(line: str) -> List[str]:
+    raw = (line or "").strip()
+    if raw.startswith("|"):
+        raw = raw[1:]
+    if raw.endswith("|"):
+        raw = raw[:-1]
+    return [cell.strip() for cell in raw.split("|")]
+
+
+def _inline_markdown_html(value: str) -> str:
+    html = escape(value or "")
+    html = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", html)
+    html = re.sub(r"`([^`]+)`", r"<code>\1</code>", html)
+    html = html.replace("&lt;mark&gt;", "<mark>").replace("&lt;/mark&gt;", "</mark>")
+    return html
+
+
+def _markdown_table_html(lines: List[str]) -> str:
+    if len(lines) < 2:
+        return ""
+    header = _md_split_table_row(lines[0])
+    body = [_md_split_table_row(line) for line in lines[2:] if _md_is_table_row(line)]
+    col_count = max([len(header)] + [len(row) for row in body] + [1])
+    def pad(row: List[str]) -> List[str]:
+        return row + [""] * (col_count - len(row))
+    head = "".join(f"<th>{_inline_markdown_html(cell)}</th>" for cell in pad(header))
+    rows = []
+    for row in body:
+        rows.append("<tr>" + "".join(f"<td>{_inline_markdown_html(cell)}</td>" for cell in pad(row)) + "</tr>")
+    return "<div class='table-wrap'><table><thead><tr>" + head + "</tr></thead><tbody>" + "".join(rows) + "</tbody></table></div>"
+
+
+def _code_block_html(code: str, lang: str = "") -> str:
+    visible = re.sub(r"[\s\u00a0\u200b\u200c\u200d\ufeff]+", " ", code or "").strip()
+    if not visible or re.match(r"^[─━_\-=|+•·.\[\](){}\\/]+$", visible):
+        return ""
+    lower_lang = (lang or "").strip().lower()
+    real_langs = {"python","py","javascript","js","typescript","ts","json","yaml","yml","html","css","sql","bash","sh","xml","toml","ini","prgm","casio"}
+    looks_real = lower_lang in real_langs or bool(re.search(r"\b(function|class|def|import|from|const|let|var|return|SELECT|INSERT|UPDATE|DELETE|CREATE|for\s*\(|while\s*\()\b", code or ""))
+    if not looks_real:
+        return "<div class='flow-box'>" + "".join(f"<div>{_inline_markdown_html(line)}</div>" for line in (code or "").splitlines() if line.strip()) + "</div>"
+    return f"<pre class='code-block'><code>{escape(code or '')}</code></pre>"
+
+
 def _simple_markdown_html(markdown: str) -> str:
-    text = escape(markdown or "")
-    text = re.sub(r"```([\s\S]*?)```", lambda m: f"<pre><code>{m.group(1)}</code></pre>", text)
-    text = re.sub(r"^### (.*)$", r"<h3>\1</h3>", text, flags=re.M)
-    text = re.sub(r"^## (.*)$", r"<h2>\1</h2>", text, flags=re.M)
-    text = re.sub(r"^# (.*)$", r"<h1>\1</h1>", text, flags=re.M)
-    text = re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", r"<img alt='\1' src='\2'/>", text)
-    text = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", text)
-    text = text.replace("&lt;mark&gt;", "<mark>").replace("&lt;/mark&gt;", "</mark>")
-    blocks = []
-    for block in re.split(r"\n{2,}", text):
-        if re.match(r"\s*<(h\d|ul|pre|img|table|blockquote|mark)", block):
-            blocks.append(block)
-        else:
-            blocks.append("<p>" + block.replace("\n", "<br/>") + "</p>")
+    lines = (markdown or "").replace("\r\n", "\n").split("\n")
+    blocks: List[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if not line.strip():
+            i += 1
+            continue
+        if line.startswith("```"):
+            lang = line.replace("```", "", 1).strip()
+            code: List[str] = []
+            i += 1
+            while i < len(lines) and not lines[i].startswith("```"):
+                code.append(lines[i])
+                i += 1
+            i += 1
+            block = _code_block_html("\n".join(code), lang)
+            if block:
+                blocks.append(block)
+            continue
+        img = re.match(r"^!\[([^\]]*)\]\((.+)\)$", line.strip())
+        if img:
+            blocks.append(f"<figure class='image-card'><img alt='{escape(img.group(1) or '이미지')}' src='{escape(img.group(2))}'/><figcaption>{escape(img.group(1) or '이미지')}</figcaption></figure>")
+            i += 1
+            continue
+        if _md_is_table_row(line) and i + 1 < len(lines) and _md_is_table_separator(lines[i + 1]):
+            table_lines = [line, lines[i + 1]]
+            i += 2
+            while i < len(lines) and _md_is_table_row(lines[i]):
+                table_lines.append(lines[i])
+                i += 1
+            blocks.append(_markdown_table_html(table_lines))
+            continue
+        heading = re.match(r"^(#{1,6})\s+(.+)$", line)
+        if heading:
+            level = len(heading.group(1))
+            blocks.append(f"<h{level}>{_inline_markdown_html(heading.group(2))}</h{level}>")
+            i += 1
+            continue
+        if re.match(r"^[-*]\s+", line):
+            items = []
+            while i < len(lines) and re.match(r"^[-*]\s+", lines[i]):
+                items.append("<li>" + _inline_markdown_html(re.sub(r"^[-*]\s+", "", lines[i])) + "</li>")
+                i += 1
+            blocks.append("<ul>" + "".join(items) + "</ul>")
+            continue
+        para = [line]
+        i += 1
+        while i < len(lines) and lines[i].strip() and not re.match(r"^(#{1,6})\s+", lines[i]) and not re.match(r"^[-*]\s+", lines[i]) and not lines[i].startswith("```") and not re.match(r"^!\[", lines[i].strip()) and not (_md_is_table_row(lines[i]) and i + 1 < len(lines) and _md_is_table_separator(lines[i + 1])):
+            para.append(lines[i])
+            i += 1
+        blocks.append("<p>" + _inline_markdown_html("\n".join(para)).replace("\n", "<br/>") + "</p>")
     return "\n".join(blocks)
 
 
@@ -247,14 +338,36 @@ def _clean_markdown_inline_for_docx(value: str) -> str:
 def _add_markdown_runs_to_docx(paragraph, line: str) -> None:
     from docx.enum.text import WD_COLOR_INDEX
     pos = 0
-    for m in re.finditer(r"<mark>(.*?)</mark>", line, flags=re.S):
+    for m in re.finditer(r"<mark>(.*?)</mark>", line or "", flags=re.S):
         if m.start() > pos:
             paragraph.add_run(_clean_markdown_inline_for_docx(line[pos:m.start()]))
         run = paragraph.add_run(_clean_markdown_inline_for_docx(m.group(1)))
         run.font.highlight_color = WD_COLOR_INDEX.YELLOW
         pos = m.end()
-    if pos < len(line):
-        paragraph.add_run(_clean_markdown_inline_for_docx(line[pos:]))
+    if pos < len(line or ""):
+        paragraph.add_run(_clean_markdown_inline_for_docx((line or "")[pos:]))
+
+
+def _add_markdown_table_to_docx(doc, table_lines: List[str]) -> None:
+    if len(table_lines) < 2:
+        return
+    rows = [_md_split_table_row(table_lines[0])] + [_md_split_table_row(line) for line in table_lines[2:] if _md_is_table_row(line)]
+    if not rows:
+        return
+    col_count = max(max(len(row) for row in rows), 1)
+    table = doc.add_table(rows=len(rows), cols=col_count)
+    table.style = "Table Grid"
+    for r_idx, row in enumerate(rows):
+        for c_idx in range(col_count):
+            cell_text = row[c_idx] if c_idx < len(row) else ""
+            cell = table.cell(r_idx, c_idx)
+            cell.text = ""
+            p = cell.paragraphs[0]
+            _add_markdown_runs_to_docx(p, cell_text)
+            if r_idx == 0:
+                for run in p.runs:
+                    run.bold = True
+    doc.add_paragraph("")
 
 
 def _markdown_to_docx_bytes(title: str, markdown: str) -> BytesIO:
@@ -264,52 +377,69 @@ def _markdown_to_docx_bytes(title: str, markdown: str) -> BytesIO:
     doc.core_properties.title = title or "Study Note"
     doc.add_heading(title or "Study Note", level=1)
     image_pattern = re.compile(r"!\[([^\]]*)\]\((data:image/[^;]+;base64,([^)]+))\)")
+    lines = (markdown or "").replace("\r\n", "\n").splitlines()
     fenced = False
-    code_buffer = []
-    for raw in (markdown or "").splitlines():
-        line = raw.rstrip()
+    code_buffer: List[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i].rstrip()
         if line.strip().startswith("```"):
             if fenced:
-                doc.add_paragraph("\n".join(code_buffer), style="Intense Quote")
+                code = "\n".join(code_buffer).strip()
+                if code:
+                    doc.add_paragraph(code, style="Intense Quote")
                 code_buffer = []
                 fenced = False
             else:
                 fenced = True
+            i += 1
             continue
         if fenced:
             code_buffer.append(line)
+            i += 1
             continue
         if not line:
             doc.add_paragraph("")
+            i += 1
             continue
         img = image_pattern.search(line)
         if img:
             try:
                 bio = BytesIO(base64.b64decode(img.group(3), validate=False))
-                doc.add_picture(bio, width=Inches(5.6))
+                doc.add_picture(bio, width=Inches(5.8))
                 caption = _clean_markdown_inline_for_docx(img.group(1) or "이미지")
                 if caption:
                     doc.add_paragraph(caption)
             except Exception:
                 doc.add_paragraph("[이미지 삽입 실패: Study Note 화면에서 PDF 저장을 사용하세요]")
+            i += 1
             continue
-        level = 0
-        if line.startswith("### "):
-            level, line = 3, line[4:]
-        elif line.startswith("## "):
-            level, line = 2, line[3:]
-        elif line.startswith("# "):
-            level, line = 1, line[2:]
-        if level:
-            doc.add_heading(_clean_markdown_inline_for_docx(line), level=level)
+        if _md_is_table_row(line) and i + 1 < len(lines) and _md_is_table_separator(lines[i + 1]):
+            table_lines = [line, lines[i + 1]]
+            i += 2
+            while i < len(lines) and _md_is_table_row(lines[i]):
+                table_lines.append(lines[i])
+                i += 1
+            _add_markdown_table_to_docx(doc, table_lines)
             continue
-        style = "List Bullet" if line.startswith(('- ', '* ')) else None
-        if style:
-            line = line[2:]
-        p = doc.add_paragraph(style=style) if style else doc.add_paragraph()
+        heading = re.match(r"^(#{1,6})\s+(.+)$", line)
+        if heading:
+            level = min(len(heading.group(1)), 4)
+            doc.add_heading(_clean_markdown_inline_for_docx(heading.group(2)), level=level)
+            i += 1
+            continue
+        if re.match(r"^[-*]\s+", line):
+            p = doc.add_paragraph(style="List Bullet")
+            _add_markdown_runs_to_docx(p, re.sub(r"^[-*]\s+", "", line))
+            i += 1
+            continue
+        p = doc.add_paragraph()
         _add_markdown_runs_to_docx(p, line)
+        i += 1
     if fenced and code_buffer:
-        doc.add_paragraph("\n".join(code_buffer), style="Intense Quote")
+        code = "\n".join(code_buffer).strip()
+        if code:
+            doc.add_paragraph(code, style="Intense Quote")
     out = BytesIO()
     doc.save(out)
     out.seek(0)
@@ -317,7 +447,7 @@ def _markdown_to_docx_bytes(title: str, markdown: str) -> BytesIO:
 
 @app.get("/health")
 def health():
-    return {"ok": True, "service": "lecturenote-suite", "version": "2.2.6"}
+    return {"ok": True, "service": "lecturenote-suite", "version": "2.2.7"}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -694,6 +824,45 @@ def update_study_note_endpoint(source_id: str, payload: StudyNoteUpdate):
     return result
 
 
+
+@app.get("/sources/{source_id}/slide-image", dependencies=[Depends(require_auth)])
+def render_source_slide_image(source_id: str, page: int = Query(default=1, ge=1), zoom: float = Query(default=2.0, ge=0.5, le=4.0)):
+    source = get_source(source_id)
+    if not source:
+        raise HTTPException(status_code=404, detail="Source not found")
+    stored_path = Path(source.get("stored_path") or "")
+    if not stored_path.exists():
+        raise HTTPException(status_code=404, detail="Stored file not found")
+    suffix = stored_path.suffix.lower()
+    if suffix != ".pdf" and "pdf" not in (source.get("mime_type") or "").lower():
+        raise HTTPException(status_code=400, detail="Slide image rendering currently supports PDF lecture slides only")
+    try:
+        import fitz  # PyMuPDF
+    except Exception:
+        raise HTTPException(status_code=500, detail="PDF slide rendering package is not installed. Add PyMuPDF to requirements.txt and redeploy.")
+    try:
+        doc = fitz.open(str(stored_path))
+        if page > len(doc):
+            raise HTTPException(status_code=400, detail=f"Page out of range. This PDF has {len(doc)} pages.")
+        pdf_page = doc[page - 1]
+        matrix = fitz.Matrix(zoom, zoom)
+        pix = pdf_page.get_pixmap(matrix=matrix, alpha=False)
+        png = pix.tobytes("png")
+        data_url = "data:image/png;base64," + base64.b64encode(png).decode("ascii")
+        label = f"{source.get('title') or source.get('original_name') or source_id} p.{page}"
+        return {
+            "source_id": source_id,
+            "page": page,
+            "page_count": len(doc),
+            "label": label,
+            "data_url": data_url,
+            "markdown": f"![{label}]({data_url})",
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to render slide page: {exc}")
+
 @app.get("/study/notes/{source_id}/download.md")
 def download_study_note_md(source_id: str):
     note = get_source_markdown(source_id)
@@ -731,7 +900,7 @@ def print_study_note_page(source_id: str):
         raise HTTPException(status_code=404, detail="Study note not found")
     title = escape(note["source"].get("title", source_id))
     html = _simple_markdown_html(note.get("markdown", ""))
-    return HTMLResponse(f"""<!doctype html><html lang='ko'><head><meta charset='utf-8'/><meta name='viewport' content='width=device-width,initial-scale=1'/><title>{title}</title><script>window.MathJax={{tex:{{inlineMath:[["$","$"],["\\\\(","\\\\)"]],displayMath:[["$$","$$"],["\\\\[","\\\\]"]],processEscapes:true}},svg:{{fontCache:'global'}}}};</script><script defer src='https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js'></script><style>body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',Arial,sans-serif;line-height:1.72;max-width:820px;margin:0 auto;padding:34px;color:#111827}}.bar{{display:flex;gap:8px;margin-bottom:20px}}button,a{{border:0;border-radius:10px;padding:9px 12px;background:#4f46e5;color:white;text-decoration:none;font-weight:800}}img{{max-width:100%;border-radius:10px}}mark{{background:#fff39a}}@media print{{.bar{{display:none}}body{{padding:0;max-width:none}}}}</style></head><body><div class='bar'><button onclick='window.print()'>PDF로 저장/인쇄</button><a href='/static/study/index.html'>Study Studio</a><a href='/'>홈</a></div><article>{html}</article></body></html>""")
+    return HTMLResponse(f"""<!doctype html><html lang='ko'><head><meta charset='utf-8'/><meta name='viewport' content='width=device-width,initial-scale=1'/><title>{title}</title><script>window.MathJax={{tex:{{inlineMath:[["$","$"],["\\\\(","\\\\)"]],displayMath:[["$$","$$"],["\\\\[","\\\\]"]],processEscapes:true}},svg:{{fontCache:'global'}}}};</script><script defer src='https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js'></script><style>body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',Arial,sans-serif;line-height:1.72;max-width:820px;margin:0 auto;padding:34px;color:#111827}}.bar{{display:flex;gap:8px;margin-bottom:20px}}button,a{{border:0;border-radius:10px;padding:9px 12px;background:#4f46e5;color:white;text-decoration:none;font-weight:800}}img{{max-width:100%;border-radius:10px}}figure{{margin:18px 0;text-align:center}}figcaption{{font-size:12px;color:#667085;margin-top:6px}}mark{{background:#fff39a}}.table-wrap{{overflow:visible;margin:18px 0}}table{{width:100%;border-collapse:collapse;font-size:13px}}th,td{{border:1px solid #d0d5dd;padding:8px 10px;vertical-align:top;text-align:left}}th{{background:#f2f4f7;font-weight:800}}pre,.flow-box{{background:#f8fafc;border:1px solid #e4e7ec;border-radius:10px;padding:12px;white-space:pre-wrap}}@media print{{.bar{{display:none}}body{{padding:0;max-width:none}}table{{break-inside:auto}}tr{{break-inside:avoid}}}}</style></head><body><div class='bar'><button onclick='window.print()'>PDF로 저장/인쇄</button><a href='/static/study/index.html'>Study Studio</a><a href='/'>홈</a></div><article>{html}</article></body></html>""")
 
 @app.get("/unit-maps/{unit_map_id}", dependencies=[Depends(require_auth)])
 def get_unit_map_endpoint(unit_map_id: str):

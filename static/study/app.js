@@ -270,6 +270,27 @@ function highlightSelection() { const sel = window.getSelection(); if (!sel || !
 function clearHighlight() { document.querySelectorAll('#doc mark').forEach(mark => mark.replaceWith(...mark.childNodes)); syncMarkdownFromDocument(); }
 function insertNodeAtSelection(node) { const sel = window.getSelection(); if (sel && sel.rangeCount && $('doc').contains(sel.getRangeAt(0).commonAncestorContainer)) { const range = sel.getRangeAt(0); range.deleteContents(); range.insertNode(node); range.setStartAfter(node); range.setEndAfter(node); sel.removeAllRanges(); sel.addRange(range); } else $('doc').appendChild(node); }
 function insertImage(ev) { const file = ev.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = () => { const figure = document.createElement('figure'); figure.className = 'image-card'; figure.dataset.mdSrc = reader.result; figure.innerHTML = `<button type="button" class="image-delete" contenteditable="false" aria-label="이미지 삭제">삭제</button><img alt="${attr(file.name)}" src="${attr(reader.result)}" contenteditable="false"><figcaption contenteditable="true">${esc(file.name)}</figcaption>`; insertNodeAtSelection(figure); syncMarkdownFromDocument(); }; reader.readAsDataURL(file); ev.target.value = ''; }
+async function insertSlideImage() {
+  try {
+    const sourceId = prompt('삽입할 강의자료 PDF source_id를 입력하세요.\n파일 관리/상태판에서 확인할 수 있습니다.');
+    if (!sourceId) return;
+    const pageRaw = prompt('삽입할 슬라이드 페이지 번호를 입력하세요.', '1');
+    if (!pageRaw) return;
+    const page = Math.max(1, parseInt(pageRaw, 10) || 1);
+    const data = await api('/sources/' + encodeURIComponent(sourceId.trim()) + '/slide-image?page=' + page, { headers: headers(false) });
+    const figure = document.createElement('figure');
+    figure.className = 'image-card';
+    figure.dataset.mdSrc = data.data_url;
+    const caption = data.label || `${sourceId.trim()} p.${page}`;
+    figure.innerHTML = `<button type="button" class="image-delete" contenteditable="false" aria-label="이미지 삭제">삭제</button><img alt="${attr(caption)}" src="${attr(data.data_url)}" contenteditable="false"><figcaption contenteditable="true">${esc(caption)}</figcaption>`;
+    insertNodeAtSelection(figure);
+    syncMarkdownFromDocument();
+    status('슬라이드 삽입됨');
+  } catch (e) {
+    alert(e.message || String(e));
+  }
+}
+
 async function toggleSource() { const dialog = $('sourceDialog'); if (dialog.open) { await renderMarkdown($('markdown').value); dialog.close(); } else { syncMarkdownFromDocument(); dialog.showModal(); } }
 function downloadMd() { if (!currentSourceId) return alert('먼저 저장하세요.'); location.href = '/study/notes/' + encodeURIComponent(currentSourceId) + '/download.md'; }
 function downloadDocx() { if (!currentSourceId) return alert('먼저 저장하세요.'); window.open('/study/notes/' + encodeURIComponent(currentSourceId) + '/download.docx', '_blank'); }

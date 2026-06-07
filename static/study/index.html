@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Study Note Studio</title>
-  <link rel="stylesheet" href="styles.css?v=22_6" />
+  <link rel="stylesheet" href="styles.css?v=22_7" />
   <script>
     window.MathJax = { tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']], processEscapes: true }, svg: { fontCache: 'global' } };
   </script>
@@ -40,7 +40,7 @@
         <button onclick="saveNote()">저장</button>
         <button onclick="highlightSelection()">형광펜</button>
         <button class="secondary" onclick="clearHighlight()">형광펜 지우기</button>
-        <label class="filebtn">이미지<input id="imageInput" type="file" accept="image/*" onchange="insertImage(event)" /></label>
+        <label class="filebtn">이미지<input id="imageInput" type="file" accept="image/*" onchange="insertImage(event)" /></label><button class="secondary" onclick="insertSlideImage()">슬라이드 삽입</button>
         <span class="spacer"></span>
         <button class="secondary" onclick="downloadMd()">Markdown</button>
         <button class="secondary" onclick="downloadDocx()">Word</button>
@@ -57,6 +57,6 @@
       </div>
     </section>
   </main>
-  <script src="app.js?v=22_6"></script>
+  <script src="app.js?v=22_7"></script>
 </body>
 </html>
