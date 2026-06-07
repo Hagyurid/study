@@ -907,6 +907,28 @@ def test_study_note_image_scale_markdown_print_and_docx():
     assert docx.status_code == 200
 
 
+
+def test_study_note_image_scale_controls_support_ten_percent_steps():
+    html = Path("static/study/index.html").read_text(encoding="utf-8")
+    js = Path("static/study/app.js").read_text(encoding="utf-8")
+    for value in range(10, 101, 10):
+        assert f'<option value="{value}"' in html
+    assert "Math.round(n / 10) * 10" in js
+
+    created = client.post('/study/notes', json={
+        'title': 'Small Image Scale Note',
+        'subject': 'CRE',
+        'source_type': 'generated_note',
+        'content_markdown': '# 이미지\n\n![샘플](data:image/png;base64,iVBORw0KGgo=){width=10%}',
+        'replace_latest': False
+    })
+    assert created.status_code == 200
+    printed = client.get(f"/study/notes/{created.json()['source_id']}/print")
+    assert printed.status_code == 200
+    assert "style='width:10%;'" in printed.text
+    docx = client.get(f"/study/notes/{created.json()['source_id']}/download.docx")
+    assert docx.status_code == 200
+
 def test_artifact_storage_creates_source_rows_not_only_private_tables():
     pack = {
         "packId": "storage-mode-pack",

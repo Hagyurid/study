@@ -1,4 +1,4 @@
-# v22.21 final cleanup, safe note saves, and image resize controls
+# v22.22 image resize range update
 
 - Study Note 저장 안전장치를 재점검했습니다.
   - `series_id`는 버전 묶음용으로만 사용하며 신규 저장 시 기존 source를 덮어쓰지 않습니다.
@@ -6,7 +6,7 @@
   - 기존 정리본 교체는 명시적 `source_id` 기반 `updateStudyNote` 또는 `replace_source_id`가 있을 때만 허용합니다.
 - Study Note Studio의 글씨 크기 조정 UI를 제거했습니다.
 - Study Note Studio에 이미지 크기 조정 UI를 추가했습니다.
-  - 선택 가능한 크기: 40%, 60%, 80%, 100%
+  - 선택 가능한 크기: 10%~100% 범위의 10% 단위
   - 선택한 이미지에 적용되며, 새 이미지/슬라이드 삽입 시 기본 크기로도 사용됩니다.
   - 저장 시 Markdown에 `{width=NN%}` 또는 `SLIDE_IMAGE size="NN"`로 보존됩니다.
   - PDF/인쇄와 DOCX 출력에도 이미지별 크기를 반영하고 왼쪽 정렬합니다.
@@ -15,7 +15,7 @@
 - 최종 점검:
   - Python 문법 검사 및 compileall 통과
   - Study/solvepad JS 구문 검사 통과
-  - pytest 38개 통과
+  - pytest 39개 통과
 
 # LectureNote Suite
 
@@ -588,10 +588,10 @@ pytest -q
   - `/calculator/generate` 응답에 프로젝트 `source_id`, `program_source_ids`, `manual_source_id`, `analysis_source_id`를 반환합니다.
   - 위 유형들은 `/sources/search`, `/sources/manage`, `/dashboard`에서 조회할 수 있습니다.
 - 계산기 프로젝트 삭제 시 연결된 프로젝트/프로그램/사용법/분석 source도 함께 정리합니다.
-- 자동 삽입 이미지와 일반 이미지의 Word/PDF/인쇄 출력 크기를 본문폭 기준 약 60%로 줄이고 왼쪽 정렬합니다.
-  - Study Note Studio 인쇄 CSS에 60%/left-align 규칙을 적용했습니다.
-  - `/study/notes/{source_id}/print` 출력 CSS에도 60%/left-align 규칙을 적용했습니다.
-  - DOCX export에서 이미지 너비를 문서 본문폭의 60%로 계산하고 왼쪽 정렬합니다.
+- 자동 삽입 이미지와 일반 이미지는 Studio에서 10%~100% 범위의 10% 단위로 크기를 조정할 수 있고, Word/PDF/인쇄 출력에도 개별 크기값을 반영합니다.
+  - Study Note Studio 인쇄 CSS는 이미지별 저장 크기값과 left-align 규칙을 적용합니다.
+  - `/study/notes/{source_id}/print` 출력 CSS에도 이미지별 저장 크기값과 left-align 규칙을 적용했습니다.
+  - DOCX export에서 이미지 너비를 문서 본문폭의 저장 비율로 계산하고 왼쪽 정렬합니다.
 - Action OpenAPI 문서에 문제팩 subject/unit/tags/source_refs 필드와 `listProblemPacks`를 반영했습니다.
 
 ### 검증
@@ -617,7 +617,7 @@ pytest -q
   - 닫기 버튼이 정상 동작합니다.
   - 모달 바깥 영역 클릭으로도 닫힙니다.
 - v15 패치본과 v13 클린본의 파일 목록을 비교했고, v13에만 있는 누락 파일은 없었습니다.
-- 자동 삽입 이미지의 Word/PDF/인쇄 출력은 본문폭 60%, 왼쪽 정렬 규칙을 유지합니다.
+- 자동 삽입 이미지의 Word/PDF/인쇄 출력은 저장된 이미지별 크기와 왼쪽 정렬 규칙을 유지합니다.
 
 ### 검증
 

@@ -28,12 +28,9 @@ function restore() {
 function status(text) { $('saveState').textContent = text; }
 function normalizeImageScale(value) {
   const n = parseInt(String(value || '').replace(/[^0-9]/g, ''), 10);
-  if ([40, 60, 80, 100].includes(n)) return String(n);
   if (!Number.isFinite(n)) return '60';
-  if (n <= 50) return '40';
-  if (n <= 70) return '60';
-  if (n <= 90) return '80';
-  return '100';
+  const rounded = Math.round(n / 10) * 10;
+  return String(Math.min(100, Math.max(10, rounded)));
 }
 function applyImageScale(figure, value) {
   if (!figure) return;

@@ -303,7 +303,8 @@ def _normalize_image_scale(value: Any = 60, default: int = 60) -> int:
         scale = int(match.group(0)) if match else int(default)
     except Exception:
         scale = int(default)
-    return max(30, min(100, scale))
+    scale = int(round(scale / 10) * 10)
+    return max(10, min(100, scale))
 
 
 def _image_figure_attrs(scale: Any = 60) -> str:
