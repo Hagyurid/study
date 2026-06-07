@@ -69,15 +69,54 @@ class PrgmEngine:
         self.result = EngineResult()
         self.file_names: set[str] = set()
 
+    def _file_name(self, file_spec: Dict[str, Any]) -> str:
+        raw = str(
+            file_spec.get("name")
+            or file_spec.get("filename")
+            or file_spec.get("fileName")
+            or file_spec.get("path")
+            or ""
+        ).strip()
+        raw = raw.replace("\\", "/").split("/")[-1]
+        if raw.lower().endswith(".txt"):
+            raw = raw[:-4]
+        raw = re.sub(r"[^A-Za-z0-9]", "", raw).upper()
+        return raw
+
+    def _direct_file_content(self, file_spec: Dict[str, Any]) -> Optional[str]:
+        for key in ("content", "program", "code", "text"):
+            if key not in file_spec:
+                continue
+            value = file_spec.get(key)
+            if isinstance(value, list):
+                text = "\n".join(str(x) for x in value)
+            else:
+                text = str(value or "")
+            if text.strip():
+                return text.replace("\r\n", "\n").replace("\r", "\n").rstrip() + "\n"
+        lines = file_spec.get("lines")
+        if isinstance(lines, list) and lines:
+            if all(not isinstance(x, dict) for x in lines):
+                return "\n".join(str(x) for x in lines).replace("\r\n", "\n").replace("\r", "\n").rstrip() + "\n"
+            if all(isinstance(x, dict) for x in lines):
+                out: List[str] = []
+                for item in lines:
+                    value = item.get("content") or item.get("value") or item.get("text") or item.get("line")
+                    if value is not None:
+                        out.append(str(value))
+                if out:
+                    return "\n".join(out).replace("\r\n", "\n").replace("\r", "\n").rstrip() + "\n"
+        return None
+
     def generate_and_validate(self) -> EngineResult:
         self._validate_top_level()
         files = self.blueprint.get("files") or []
         for f in files:
-            name = str(f.get("name", "")).strip()
+            name = self._file_name(f)
             if name:
                 self.file_names.add(name)
         for f in files:
-            name = str(f.get("name", "")).strip()
+            name = self._file_name(f)
             if not name:
                 continue
             content = self._emit_file(f)
@@ -110,9 +149,10 @@ class PrgmEngine:
             return
         seen = set()
         for f in files:
-            name = str(f.get("name", "")).strip()
+            name = self._file_name(f)
             if not FILE_RE.match(name):
-                self._msg("error", name or None, None, "파일명 규칙 위반: 1~8자, 대문자 A-Z/숫자만 허용", name)
+                raw_name = str(f.get("name") or f.get("filename") or f.get("fileName") or "").strip()
+                self._msg("error", name or None, None, "파일명 규칙 위반: 1~8자, 대문자 A-Z/숫자만 허용", raw_name or name)
             if self.strict_final_names and FINAL_VERSION_RE.search(name):
                 self._msg("error", name, None, "최종본 모드에서는 파일명 끝 버전 숫자를 쓰지 않습니다.")
             if name in seen:
@@ -122,10 +162,11 @@ class PrgmEngine:
     def _validate_cross_file(self):
         files = self.blueprint.get("files") or []
         for f in files:
-            name = str(f.get("name", "")).strip()
+            name = self._file_name(f)
             blocks = f.get("blocks") or []
+            direct_content = self._direct_file_content(f)
             is_menu_only = any(b.get("type") == "menu" for b in blocks) and not any(b.get("type") in {"input", "calcStep", "calc", "recurrenceTable"} for b in blocks)
-            if not f.get("referenceOnly") and not is_menu_only:
+            if not direct_content and not f.get("referenceOnly") and not is_menu_only:
                 present = {b.get("type") for b in blocks}
                 required = {"screen", "symbolTable", "conditionList", "formula", "input", "output", "interpretation"}
                 if "calcStep" not in present and "calc" not in present and "recurrenceTable" not in present:
@@ -146,7 +187,10 @@ class PrgmEngine:
                         self._msg("error", name, None, f"call target이 files 배열에 없습니다: {target}")
 
     def _emit_file(self, file_spec: Dict[str, Any]) -> str:
-        name = str(file_spec.get("name", "")).strip()
+        name = self._file_name(file_spec)
+        direct = self._direct_file_content(file_spec)
+        if direct is not None:
+            return direct
         out: List[str] = []
         for b in file_spec.get("blocks") or []:
             typ = b.get("type")

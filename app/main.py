@@ -45,7 +45,7 @@ from app.modules.prgm_engine import generate_txt_files, validate_blueprint
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "static"
 
-app = FastAPI(title="LectureNote Suite", version="2.2.27")
+app = FastAPI(title="LectureNote Suite", version="2.2.30")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"], allow_credentials=False)
 app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
 init_db()
@@ -993,6 +993,50 @@ def _pack_for_source_id(source_id: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+def _calculator_project_for_source_id(source_id: str) -> Optional[Dict[str, Any]]:
+    clean = str(source_id or "").strip()
+    if not clean:
+        return None
+    direct = get_calculator_blueprint(clean)
+    if direct:
+        return direct
+    for item in list_calculator_blueprints(""):
+        related = {
+            str(item.get("calculator_project_id") or ""),
+            str(item.get("source_id") or ""),
+            str(item.get("manual_source_id") or ""),
+            str(item.get("analysis_source_id") or ""),
+        }
+        related.update(str(x) for x in (item.get("program_source_ids") or []))
+        if clean in related:
+            return get_calculator_blueprint(str(item.get("calculator_project_id") or ""))
+    return None
+
+
+def _calculator_manual_print_html(source_id: str, index: int = 1) -> Optional[str]:
+    source = get_source(source_id) or {}
+    source_type = str(source.get("source_type") or "")
+    if source_type == "calculator_manual":
+        note = get_source_markdown(source_id)
+        if note:
+            src = note.get("source") or source
+            title = escape(src.get("title") or f"계산기 사용법 {index}")
+            sid = escape(src.get("id") or source_id)
+            subject = escape(src.get("subject") or "미지정")
+            body = _simple_markdown_html(note.get("markdown", "")) or "<p>사용법 문서가 비어 있습니다.</p>"
+            return f"<section class='print-doc'><header><h1>{index}. {title}</h1><div class='doc-meta'>과목: {subject} · 유형: 계산기 사용법 · source_id: <code>{sid}</code></div></header><article>{body}</article></section>"
+    project = _calculator_project_for_source_id(source_id)
+    if not project:
+        return None
+    title = escape(project.get("title") or f"계산기 프로젝트 {index}")
+    project_id = escape(project.get("id") or source_id)
+    metadata = project.get("metadata") or {}
+    subject = escape(metadata.get("subject") or source.get("subject") or "미지정")
+    manual = project.get("manual_markdown") or "사용법 문서가 저장되지 않았습니다."
+    body = _simple_markdown_html(manual) or "<p>사용법 문서가 비어 있습니다.</p>"
+    return f"<section class='print-doc'><header><h1>{index}. {title} 사용법</h1><div class='doc-meta'>과목: {subject} · 유형: 계산기 사용법 · project_id: <code>{project_id}</code></div></header><article>{body}</article></section>"
+
+
 def _as_markdown_html(value: Any) -> str:
     if value is None:
         return ""
@@ -1299,7 +1343,7 @@ def manage_sources_page(subject: str = Query(default=""), source_type: str = Que
         "업로드 파일 관리",
         f"""<section class='top'><div><h1>업로드 파일 관리</h1><p>자료를 필터링하고 여러 문서를 하나의 PDF 인쇄 화면으로 묶거나, SolvePad 문제팩을 문제지/해설지 양식으로 출력합니다.</p></div><div class='nav'><a class='btn secondary' href='/upload'>자료 업로드</a><a class='btn secondary' href='/'>홈</a></div></section>
 <section class='card'><form method='get' action='/sources/manage'><label>과목 필터</label><input name='subject' value='{escape(subject)}' placeholder='예: CRE'/><label>유형 필터</label><select name='source_type'><option value='' {'selected' if not source_type else ''}>전체 유형</option>{_options(source_type)}</select><label>액션 키</label><input name='action_key' type='password' value='{escape(action_key)}' placeholder='처음 한 번 입력하면 자동 저장'/><div class='keybox'><span class='key-status' data-key-status></span><button class='btn secondary' type='button' data-clear-key>저장된 키 지우기</button></div><div class='actions'><button type='submit'>적용</button><a class='btn secondary' href='/status?subject={escape(subject)}'>상태판/매핑</a><a class='btn secondary' href='/sources/manage?action_key={escape(action_key)}'>필터 초기화</a></div></form></section>
-<section class='card' style='margin-top:16px;overflow:auto'><form method='post' onsubmit="const checked=document.querySelectorAll('[data-source-check]:checked').length; const submitter=event.submitter; const action=submitter?.dataset.action||''; if(!checked && !submitter?.value){{alert('대상 자료를 선택하세요.'); return false;}} if(action.startsWith('print')){{return true;}} if(action==='rename'){{const name=this.querySelector('[name=new_name]').value.trim(); if(!name){{alert('새 표시 파일명을 입력하세요.'); return false;}} return confirm((checked || 1)+'개 자료의 표시 파일명을 변경할까요?');}} return confirm((checked || 1)+'개 자료를 삭제할까요?');"><input type='hidden' name='action_key' value='{escape(action_key)}'/><input type='hidden' name='subject' value='{escape(subject)}'/><input type='hidden' name='source_type' value='{escape(source_type)}'/><div class='pdfbar'><span class='label'>PDF 출력</span><button class='btn secondary' type='submit' data-action='print-docs' formaction='/sources/print-bundle' formtarget='_blank'>선택 문서 통합 PDF</button><button class='btn secondary' type='submit' data-action='print-questions' formaction='/sources/problem-packs/print?mode=questions' formtarget='_blank'>선택 문제지 PDF</button><button class='btn secondary' type='submit' data-action='print-solutions' formaction='/sources/problem-packs/print?mode=solutions' formtarget='_blank'>선택 해설지 PDF</button><span class='hint'>매핑/단원 번호 기준으로 자동 정렬 후 브라우저 인쇄 화면에서 PDF로 저장합니다.</span></div><div class='actions' style='justify-content:space-between;align-items:center;margin-top:0;margin-bottom:12px'><label style='margin:0;display:flex;gap:8px;align-items:center'><input type='checkbox' id='selectAllSources' onclick="document.querySelectorAll('[data-source-check]').forEach(cb=>cb.checked=this.checked)"/> 전체 선택</label><div class='renamebar'><div><label style='margin:0 0 6px'>선택 파일명 변경</label><input name='new_name' placeholder='새 표시 파일명. 여러 개면 {{n}} 사용 가능'/><div class='hint'>예: 전재설 Week{{n}} 강의자료</div></div><div><label style='margin:0 0 6px'>변경 대상</label><select name='rename_target'><option value='title'>제목만</option><option value='original_name'>파일명 표시만</option><option value='both'>제목+파일명 표시</option></select></div><button class='btn secondary' type='submit' data-action='rename' formaction='/sources/rename-batch'>선택 파일명 변경</button><button class='danger' type='submit' data-action='delete' formaction='/sources/delete-batch'>선택 삭제</button></div></div><table><thead><tr><th>선택</th><th>과목</th><th>유형</th><th>제목/source_id</th><th>파일</th><th>생성일</th><th>작업</th></tr></thead><tbody>{table_rows}</tbody></table></form></section>""",
+<section class='card' style='margin-top:16px;overflow:auto'><form method='post' onsubmit="const checked=document.querySelectorAll('[data-source-check]:checked').length; const submitter=event.submitter; const action=submitter?.dataset.action||''; if(!checked && !submitter?.value){{alert('대상 자료를 선택하세요.'); return false;}} if(action.startsWith('print')){{return true;}} if(action==='rename'){{const name=this.querySelector('[name=new_name]').value.trim(); if(!name){{alert('새 표시 파일명을 입력하세요.'); return false;}} return confirm((checked || 1)+'개 자료의 표시 파일명을 변경할까요?');}} return confirm((checked || 1)+'개 자료를 삭제할까요?');"><input type='hidden' name='action_key' value='{escape(action_key)}'/><input type='hidden' name='subject' value='{escape(subject)}'/><input type='hidden' name='source_type' value='{escape(source_type)}'/><div class='pdfbar'><span class='label'>PDF 출력</span><button class='btn secondary' type='submit' data-action='print-docs' formaction='/sources/print-bundle' formtarget='_blank'>선택 문서 통합 PDF</button><button class='btn secondary' type='submit' data-action='print-questions' formaction='/sources/problem-packs/print?mode=questions' formtarget='_blank'>선택 문제지 PDF</button><button class='btn secondary' type='submit' data-action='print-solutions' formaction='/sources/problem-packs/print?mode=solutions' formtarget='_blank'>선택 해설지 PDF</button><button class='btn secondary' type='submit' data-action='print-calculator-manuals' formaction='/sources/calculator-manuals/print' formtarget='_blank'>선택 계산기 사용법 PDF</button><span class='hint'>매핑/단원 번호 기준으로 자동 정렬 후 브라우저 인쇄 화면에서 PDF로 저장합니다.</span></div><div class='actions' style='justify-content:space-between;align-items:center;margin-top:0;margin-bottom:12px'><label style='margin:0;display:flex;gap:8px;align-items:center'><input type='checkbox' id='selectAllSources' onclick="document.querySelectorAll('[data-source-check]').forEach(cb=>cb.checked=this.checked)"/> 전체 선택</label><div class='renamebar'><div><label style='margin:0 0 6px'>선택 파일명 변경</label><input name='new_name' placeholder='새 표시 파일명. 여러 개면 {{n}} 사용 가능'/><div class='hint'>예: 전재설 Week{{n}} 강의자료</div></div><div><label style='margin:0 0 6px'>변경 대상</label><select name='rename_target'><option value='title'>제목만</option><option value='original_name'>파일명 표시만</option><option value='both'>제목+파일명 표시</option></select></div><button class='btn secondary' type='submit' data-action='rename' formaction='/sources/rename-batch'>선택 파일명 변경</button><button class='danger' type='submit' data-action='delete' formaction='/sources/delete-batch'>선택 삭제</button></div></div><table><thead><tr><th>선택</th><th>과목</th><th>유형</th><th>제목/source_id</th><th>파일</th><th>생성일</th><th>작업</th></tr></thead><tbody>{table_rows}</tbody></table></form></section>""",
     )
 
 
@@ -1343,6 +1387,29 @@ def print_problem_packs_endpoint(mode: str = Query(default="questions"), action_
         return _print_shell(title, "<section class='paper-pack'><h1>선택된 문제팩이 없습니다</h1><p>파일 관리에서 problem_pack 유형을 선택하세요.</p></section>")
     body = "".join(_problem_pack_print_html(pack, mode, idx) for idx, pack in enumerate(packs, 1))
     return _print_shell(title, body, f"문제팩 {len(packs)}개")
+
+
+@app.post("/sources/calculator-manuals/print", response_class=HTMLResponse)
+def print_calculator_manuals_endpoint(action_key: str = Form(default=""), source_ids: Optional[List[str]] = Form(default=None)):
+    if not _is_authorized(action_key=action_key):
+        raise HTTPException(status_code=401, detail="Invalid action key")
+    ids = _selected_ids(source_ids)
+    ordered_ids, order_note = _order_selected_sources_for_print(ids)
+    parts: List[str] = []
+    seen_keys = set()
+    for source_id in ordered_ids:
+        project = _calculator_project_for_source_id(source_id)
+        source = get_source(source_id) or {}
+        key = project.get("id") if project else (source.get("id") or source_id)
+        if key in seen_keys:
+            continue
+        html = _calculator_manual_print_html(source_id, len(parts) + 1)
+        if html:
+            seen_keys.add(key)
+            parts.append(html)
+    if not parts:
+        parts.append("<section class='print-doc'><h1>선택된 계산기 사용법이 없습니다</h1><p>파일 관리에서 calculator_project 또는 calculator_manual 유형을 선택하세요.</p></section>")
+    return _print_shell("계산기 사용법 PDF", "".join(parts), order_note)
 
 
 @app.get("/sources/{source_id}")
