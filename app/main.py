@@ -809,6 +809,164 @@ def _print_shell(title: str, body_html: str, subtitle: str = "") -> HTMLResponse
     return HTMLResponse(f"""<!doctype html><html lang='ko'><head><meta charset='utf-8'/><meta name='viewport' content='width=device-width,initial-scale=1'/><title>{safe_title}</title><script>window.MathJax={{tex:{{inlineMath:[["$","$"],["\\\\(","\\\\)"]],displayMath:[["$$","$$"],["\\\\[","\\\\]"]],processEscapes:true}},svg:{{fontCache:'global'}}}};</script><script defer src='https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js'></script><style>@page{{size:A4;margin:14mm}}*{{box-sizing:border-box}}body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',Arial,sans-serif;margin:0;background:#f5f7fb;color:#111827;font-size:14px;line-height:1.68}}.print-actions{{position:sticky;top:0;z-index:10;display:flex;gap:8px;align-items:center;justify-content:space-between;padding:12px 16px;background:rgba(255,255,255,.94);border-bottom:1px solid #e4e7ec;backdrop-filter:blur(8px)}}.print-actions .meta{{color:#667085;font-size:13px}}button,a{{border:0;border-radius:10px;padding:9px 12px;background:#4f46e5;color:white;text-decoration:none;font-weight:800;cursor:pointer}}a.secondary{{background:#eef2ff;color:#4f46e5}}main{{max-width:900px;margin:0 auto;padding:24px 18px 56px}}.print-doc,.paper-pack{{background:white;border:1px solid #e4e7ec;border-radius:18px;padding:28px 34px;margin:0 0 24px;box-shadow:0 10px 28px rgba(16,24,40,.06);break-after:page}}.print-doc:last-child,.paper-pack:last-child{{break-after:auto}}.doc-meta,.pack-meta,.question-meta{{color:#667085;font-size:12px;margin:4px 0 18px}}h1{{font-size:28px;line-height:1.25;letter-spacing:-.035em;margin:0 0 10px}}h2{{font-size:20px;margin:28px 0 10px;letter-spacing:-.02em}}h3{{font-size:16px;margin:18px 0 8px}}p{{margin:0 0 12px}}ul,ol{{padding-left:22px}}li{{margin:4px 0}}.question-card{{border:1px solid #d0d5dd;border-radius:14px;padding:18px;margin:18px 0 22px;break-inside:avoid;background:#fff}}.solution-card{{border:1px solid #d0d5dd;border-radius:14px;padding:18px;margin:18px 0 22px;break-inside:avoid;background:#fff}}.prompt-box{{border-left:4px solid #4f46e5;padding:10px 12px;background:#f8f9ff;border-radius:10px;margin:10px 0 14px}}.answer-space{{min-height:150px;border:1px dashed #98a2b3;border-radius:12px;background:linear-gradient(#fff,#fff),repeating-linear-gradient(0deg,transparent,transparent 27px,#eef2f7 28px);margin-top:14px;padding:12px;color:#98a2b3}}.answer-box{{border:1px solid #bbf7d0;background:#f0fdf4;border-radius:12px;padding:12px;margin:10px 0}}.section-box{{border:1px solid #e4e7ec;border-radius:12px;padding:12px;margin:10px 0;background:#fcfcfd}}.choices{{list-style-type:upper-alpha}}mark{{background:#fff39a}}figure.image-card{{width:60%;margin:18px 0;text-align:left}}figure.image-card img{{display:block;width:100%;max-width:100%;height:auto;max-height:none;object-fit:contain;margin-left:0;margin-right:auto;border-radius:10px}}figure.image-card figcaption{{font-size:12px;color:#667085;margin-top:6px;text-align:left}}img{{max-width:100%;height:auto;object-fit:contain;border-radius:10px}}.table-wrap{{overflow:visible;margin:18px 0}}table{{width:100%;border-collapse:collapse;font-size:13px;break-inside:auto}}th,td{{border:1px solid #d0d5dd;padding:8px 10px;vertical-align:top;text-align:left}}th{{background:#f2f4f7;font-weight:800}}pre,.flow-box{{background:#f8fafc;border:1px solid #e4e7ec;border-radius:10px;padding:12px;white-space:pre-wrap}}@media print{{body{{background:white;font-size:12px}}main{{max-width:none;margin:0;padding:0}}.print-actions{{display:none}}.print-doc,.paper-pack{{border:0;border-radius:0;box-shadow:none;margin:0;padding:0 0 12mm}}.question-card,.solution-card{{break-inside:avoid}}tr{{break-inside:avoid}}}}</style></head><body><div class='print-actions'><div><b>{safe_title}</b><div class='meta'>{safe_subtitle}</div></div><div><button onclick='window.print()'>PDF로 저장/인쇄</button> <a class='secondary' href='/sources/manage'>파일 관리</a></div></div><main>{body_html}</main></body></html>""")
 
 
+
+def _unit_number_sort_key(value: Any) -> Tuple:
+    text = str(value or "").strip()
+    if not text:
+        return (9999, "")
+    numbers = [int(part) for part in re.findall(r"\d+", text)]
+    if numbers:
+        return (0, numbers, text.lower())
+    return (1, text.lower())
+
+
+def _extract_source_ids_from_unit(unit: Dict[str, Any]) -> List[str]:
+    ids: List[str] = []
+    anchor = unit.get("lectureAnchor") or {}
+    if isinstance(anchor, dict) and anchor.get("sourceId"):
+        ids.append(str(anchor.get("sourceId")))
+    field_keys = [
+        "textbook", "transcript", "correctedTranscript", "pastExam", "examTrend",
+        "generatedNote", "externalNote", "lectureSlides", "problemPack", "calculatorProject",
+        "calculatorProgram", "calculatorManual", "calculatorAnalysis",
+    ]
+    for key in field_keys:
+        values = unit.get(key, []) or []
+        if isinstance(values, dict):
+            values = [values]
+        if not isinstance(values, list):
+            continue
+        for item in values:
+            if isinstance(item, dict):
+                sid = item.get("sourceId") or item.get("source_id") or item.get("id")
+            else:
+                sid = item
+            if sid:
+                ids.append(str(sid))
+    return ids
+
+
+def _mapping_order_index(selected_sources: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    """Return unit-map based sort metadata for selected source ids.
+
+    The latest matching unit maps are treated as authoritative ordering. A source may appear
+    in multiple maps/units; the earliest unit in the newest relevant map wins. If no map
+    covers a source, natural unit/title fallback is used elsewhere.
+    """
+    selected_ids = set(selected_sources)
+    if not selected_ids:
+        return {}
+    selected_subjects = {str(src.get("subject") or "").strip() for src in selected_sources.values() if str(src.get("subject") or "").strip()}
+    order: Dict[str, Dict[str, Any]] = {}
+    for map_rank, summary in enumerate(list_unit_maps()):
+        unit_map = get_unit_map(summary.get("id", "")) or {}
+        mapping = unit_map.get("map") or {}
+        source_ids = set(str(sid) for sid in (unit_map.get("source_ids") or []))
+        units = mapping.get("units") or []
+        if not isinstance(units, list):
+            continue
+        title = str(unit_map.get("title") or "")
+        title_matches_subject = any(subject and subject in title for subject in selected_subjects)
+        map_contains_selected = bool(source_ids & selected_ids)
+        unit_contains_selected = False
+        unit_rows: List[Tuple[int, Dict[str, Any], List[str]]] = []
+        for idx, unit in enumerate(units):
+            if not isinstance(unit, dict):
+                continue
+            ids = _extract_source_ids_from_unit(unit)
+            if selected_ids.intersection(ids):
+                unit_contains_selected = True
+            unit_rows.append((idx, unit, ids))
+        if selected_subjects and not (title_matches_subject or map_contains_selected or unit_contains_selected):
+            continue
+        for idx, unit, ids in unit_rows:
+            unit_number = str(unit.get("unitNumber") or unit.get("unitNo") or unit.get("unitId") or "").strip()
+            unit_title = str(unit.get("unitTitle") or unit.get("title") or "").strip()
+            for sid in ids:
+                if sid not in selected_ids:
+                    continue
+                candidate = {
+                    "map_rank": map_rank,
+                    "unit_index": idx,
+                    "unit_number": unit_number,
+                    "unit_title": unit_title,
+                    "unit_key": _unit_number_sort_key(unit_number or idx),
+                    "unit_map_title": title,
+                }
+                old = order.get(sid)
+                old_key = (old.get("map_rank", 9999), old.get("unit_index", 9999), old.get("unit_key", (9999, ""))) if old else None
+                new_key = (candidate["map_rank"], candidate["unit_index"], candidate["unit_key"])
+                if old is None or new_key < old_key:
+                    order[sid] = candidate
+    return order
+
+
+def _source_unit_hint(source_id: str, source: Dict[str, Any]) -> str:
+    for version in list_note_source_versions(source_id):
+        unit_number = str(version.get("unit_number") or "").strip()
+        if unit_number:
+            return unit_number
+    joined = " ".join([str(source.get("title") or ""), str(source.get("original_name") or "")])
+    patterns = [
+        r"(?<!\d)(\d+\s*[-–/]\s*\d+(?:\s*/\s*\d+\s*[-–/]\s*\d+)?)(?!\d)",
+        r"(?<!\d)(\d+)(?!\d)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, joined)
+        if match:
+            return re.sub(r"\s+", "", match.group(1))
+    return ""
+
+
+def _source_print_sort_tuple(source_id: str, source: Dict[str, Any], mapping_order: Dict[str, Dict[str, Any]], original_index: int) -> Tuple:
+    mapped = mapping_order.get(source_id)
+    type_priority = {
+        "lecture_slides": 0,
+        "generated_note": 1,
+        "external_note": 2,
+        "exam_cram": 3,
+        "corrected_transcript": 4,
+        "transcript": 5,
+        "textbook": 6,
+        "calculator_manual": 7,
+        "calculator_analysis": 8,
+    }.get(source.get("source_type") or "", 50)
+    if mapped:
+        return (
+            str(source.get("subject") or ""),
+            0,
+            mapped.get("map_rank", 9999),
+            mapped.get("unit_index", 9999),
+            mapped.get("unit_key", (9999, "")),
+            type_priority,
+            str(source.get("title") or "").lower(),
+            original_index,
+        )
+    hint = _source_unit_hint(source_id, source)
+    return (
+        str(source.get("subject") or ""),
+        1,
+        9999,
+        9999,
+        _unit_number_sort_key(hint),
+        type_priority,
+        str(source.get("title") or "").lower(),
+        original_index,
+    )
+
+
+def _order_selected_sources_for_print(ids: List[str]) -> Tuple[List[str], str]:
+    sources = {sid: get_source(sid) or {} for sid in ids}
+    mapping_order = _mapping_order_index({sid: src for sid, src in sources.items() if src})
+    ordered = sorted(
+        ids,
+        key=lambda sid: _source_print_sort_tuple(sid, sources.get(sid) or {}, mapping_order, ids.index(sid)),
+    )
+    mapped_count = sum(1 for sid in ordered if sid in mapping_order)
+    if mapped_count:
+        return ordered, f"매핑 기준 자동 정렬 · 선택 {len(ids)}개 · 매핑 반영 {mapped_count}개"
+    return ordered, f"단원 번호/제목 기준 자동 정렬 · 선택 {len(ids)}개"
+
 def _source_print_html(source_id: str, index: int = 1) -> str:
     note = get_source_markdown(source_id)
     if not note:
@@ -1141,7 +1299,7 @@ def manage_sources_page(subject: str = Query(default=""), source_type: str = Que
         "업로드 파일 관리",
         f"""<section class='top'><div><h1>업로드 파일 관리</h1><p>자료를 필터링하고 여러 문서를 하나의 PDF 인쇄 화면으로 묶거나, SolvePad 문제팩을 문제지/해설지 양식으로 출력합니다.</p></div><div class='nav'><a class='btn secondary' href='/upload'>자료 업로드</a><a class='btn secondary' href='/'>홈</a></div></section>
 <section class='card'><form method='get' action='/sources/manage'><label>과목 필터</label><input name='subject' value='{escape(subject)}' placeholder='예: CRE'/><label>유형 필터</label><select name='source_type'><option value='' {'selected' if not source_type else ''}>전체 유형</option>{_options(source_type)}</select><label>액션 키</label><input name='action_key' type='password' value='{escape(action_key)}' placeholder='처음 한 번 입력하면 자동 저장'/><div class='keybox'><span class='key-status' data-key-status></span><button class='btn secondary' type='button' data-clear-key>저장된 키 지우기</button></div><div class='actions'><button type='submit'>적용</button><a class='btn secondary' href='/status?subject={escape(subject)}'>상태판/매핑</a><a class='btn secondary' href='/sources/manage?action_key={escape(action_key)}'>필터 초기화</a></div></form></section>
-<section class='card' style='margin-top:16px;overflow:auto'><form method='post' onsubmit="const checked=document.querySelectorAll('[data-source-check]:checked').length; const submitter=event.submitter; const action=submitter?.dataset.action||''; if(!checked && !submitter?.value){{alert('대상 자료를 선택하세요.'); return false;}} if(action.startsWith('print')){{return true;}} if(action==='rename'){{const name=this.querySelector('[name=new_name]').value.trim(); if(!name){{alert('새 표시 파일명을 입력하세요.'); return false;}} return confirm((checked || 1)+'개 자료의 표시 파일명을 변경할까요?');}} return confirm((checked || 1)+'개 자료를 삭제할까요?');"><input type='hidden' name='action_key' value='{escape(action_key)}'/><input type='hidden' name='subject' value='{escape(subject)}'/><input type='hidden' name='source_type' value='{escape(source_type)}'/><div class='pdfbar'><span class='label'>PDF 출력</span><button class='btn secondary' type='submit' data-action='print-docs' formaction='/sources/print-bundle' formtarget='_blank'>선택 문서 통합 PDF</button><button class='btn secondary' type='submit' data-action='print-questions' formaction='/sources/problem-packs/print?mode=questions' formtarget='_blank'>선택 문제지 PDF</button><button class='btn secondary' type='submit' data-action='print-solutions' formaction='/sources/problem-packs/print?mode=solutions' formtarget='_blank'>선택 해설지 PDF</button><span class='hint'>브라우저 인쇄 화면에서 PDF로 저장합니다.</span></div><div class='actions' style='justify-content:space-between;align-items:center;margin-top:0;margin-bottom:12px'><label style='margin:0;display:flex;gap:8px;align-items:center'><input type='checkbox' id='selectAllSources' onclick="document.querySelectorAll('[data-source-check]').forEach(cb=>cb.checked=this.checked)"/> 전체 선택</label><div class='renamebar'><div><label style='margin:0 0 6px'>선택 파일명 변경</label><input name='new_name' placeholder='새 표시 파일명. 여러 개면 {{n}} 사용 가능'/><div class='hint'>예: 전재설 Week{{n}} 강의자료</div></div><div><label style='margin:0 0 6px'>변경 대상</label><select name='rename_target'><option value='title'>제목만</option><option value='original_name'>파일명 표시만</option><option value='both'>제목+파일명 표시</option></select></div><button class='btn secondary' type='submit' data-action='rename' formaction='/sources/rename-batch'>선택 파일명 변경</button><button class='danger' type='submit' data-action='delete' formaction='/sources/delete-batch'>선택 삭제</button></div></div><table><thead><tr><th>선택</th><th>과목</th><th>유형</th><th>제목/source_id</th><th>파일</th><th>생성일</th><th>작업</th></tr></thead><tbody>{table_rows}</tbody></table></form></section>""",
+<section class='card' style='margin-top:16px;overflow:auto'><form method='post' onsubmit="const checked=document.querySelectorAll('[data-source-check]:checked').length; const submitter=event.submitter; const action=submitter?.dataset.action||''; if(!checked && !submitter?.value){{alert('대상 자료를 선택하세요.'); return false;}} if(action.startsWith('print')){{return true;}} if(action==='rename'){{const name=this.querySelector('[name=new_name]').value.trim(); if(!name){{alert('새 표시 파일명을 입력하세요.'); return false;}} return confirm((checked || 1)+'개 자료의 표시 파일명을 변경할까요?');}} return confirm((checked || 1)+'개 자료를 삭제할까요?');"><input type='hidden' name='action_key' value='{escape(action_key)}'/><input type='hidden' name='subject' value='{escape(subject)}'/><input type='hidden' name='source_type' value='{escape(source_type)}'/><div class='pdfbar'><span class='label'>PDF 출력</span><button class='btn secondary' type='submit' data-action='print-docs' formaction='/sources/print-bundle' formtarget='_blank'>선택 문서 통합 PDF</button><button class='btn secondary' type='submit' data-action='print-questions' formaction='/sources/problem-packs/print?mode=questions' formtarget='_blank'>선택 문제지 PDF</button><button class='btn secondary' type='submit' data-action='print-solutions' formaction='/sources/problem-packs/print?mode=solutions' formtarget='_blank'>선택 해설지 PDF</button><span class='hint'>매핑/단원 번호 기준으로 자동 정렬 후 브라우저 인쇄 화면에서 PDF로 저장합니다.</span></div><div class='actions' style='justify-content:space-between;align-items:center;margin-top:0;margin-bottom:12px'><label style='margin:0;display:flex;gap:8px;align-items:center'><input type='checkbox' id='selectAllSources' onclick="document.querySelectorAll('[data-source-check]').forEach(cb=>cb.checked=this.checked)"/> 전체 선택</label><div class='renamebar'><div><label style='margin:0 0 6px'>선택 파일명 변경</label><input name='new_name' placeholder='새 표시 파일명. 여러 개면 {{n}} 사용 가능'/><div class='hint'>예: 전재설 Week{{n}} 강의자료</div></div><div><label style='margin:0 0 6px'>변경 대상</label><select name='rename_target'><option value='title'>제목만</option><option value='original_name'>파일명 표시만</option><option value='both'>제목+파일명 표시</option></select></div><button class='btn secondary' type='submit' data-action='rename' formaction='/sources/rename-batch'>선택 파일명 변경</button><button class='danger' type='submit' data-action='delete' formaction='/sources/delete-batch'>선택 삭제</button></div></div><table><thead><tr><th>선택</th><th>과목</th><th>유형</th><th>제목/source_id</th><th>파일</th><th>생성일</th><th>작업</th></tr></thead><tbody>{table_rows}</tbody></table></form></section>""",
     )
 
 
@@ -1152,9 +1310,10 @@ def print_sources_bundle_endpoint(action_key: str = Form(default=""), source_ids
     ids = _selected_ids(source_ids)
     if not ids:
         return _print_shell("통합 PDF 인쇄", "<section class='print-doc'><h1>선택된 자료가 없습니다</h1><p>파일 관리에서 자료를 선택하세요.</p></section>")
+    ordered_ids, order_note = _order_selected_sources_for_print(ids)
     parts = []
     skipped = []
-    for idx, source_id in enumerate(ids, 1):
+    for idx, source_id in enumerate(ordered_ids, 1):
         source = get_source(source_id)
         if source and source.get("source_type") == "problem_pack":
             skipped.append(source_id)
@@ -1164,7 +1323,7 @@ def print_sources_bundle_endpoint(action_key: str = Form(default=""), source_ids
         parts.append("<section class='print-doc'><h1>문제팩 출력 안내</h1><p>선택한 문제팩은 이 통합 문서 출력에서 제외했습니다. 문제팩은 파일 관리의 ‘선택 문제지 PDF’ 또는 ‘선택 해설지 PDF’를 사용하세요.</p><p>제외 source_id: " + ", ".join(f"<code>{escape(x)}</code>" for x in skipped) + "</p></section>")
     if not parts:
         parts.append("<section class='print-doc'><h1>출력 가능한 문서가 없습니다</h1><p>정리본, 전사본, 계산기 문서 등 문서형 자료를 선택하세요.</p></section>")
-    return _print_shell("통합 PDF 인쇄", "".join(parts), f"선택 {len(ids)}개 자료")
+    return _print_shell("통합 PDF 인쇄", "".join(parts), order_note)
 
 
 @app.post("/sources/problem-packs/print", response_class=HTMLResponse)
@@ -1173,8 +1332,9 @@ def print_problem_packs_endpoint(mode: str = Query(default="questions"), action_
         raise HTTPException(status_code=401, detail="Invalid action key")
     mode = "solutions" if mode in {"solutions", "solution", "answers"} else "questions"
     ids = _selected_ids(source_ids)
+    ordered_ids, _order_note = _order_selected_sources_for_print(ids)
     packs = []
-    for source_id in ids:
+    for source_id in ordered_ids:
         pack = _pack_for_source_id(source_id)
         if pack:
             packs.append(pack)
