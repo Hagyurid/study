@@ -18,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import ACTION_API_KEY, PUBLIC_BASE_URL, UPLOAD_DIR
 from app.db import (
-    create_project, create_workflow_plan, create_workflow_run, delete_source, delete_calculator_blueprint,
+    create_project, create_workflow_plan, create_workflow_run, delete_source, delete_calculator_blueprint, maintenance_cleanup,
     export_project_note_as_source, final_bundle, get_latest_note_version,
     get_dashboard,
     get_mapping_status, get_next_section, get_source_markdown, get_problem_pack_by_token, get_problem_pack_by_id, get_source,
@@ -37,7 +37,7 @@ from app.models import (
     CalculatorBlueprintSave, GenericItemsSave, NoteVersionSave, OutlineSave,
     ProblemPackSave, ProjectCreate, SearchRequest, SectionSave, TextSourceSave,
     TranscriptRevisionSave, UnitMapSave, WorkflowPlanCreate, WorkflowRunCreate,
-    WorkflowCheckpointSave, StudyNoteSave, StudyNoteUpdate, ExamCramSave,
+    WorkflowCheckpointSave, StudyNoteSave, StudyNoteUpdate, ExamCramSave, MaintenanceCleanupRequest,
 )
 from app.modules.file_extract import extract_text
 from app.modules.prgm_engine import generate_txt_files, validate_blueprint
@@ -1489,6 +1489,18 @@ def delete_sources_batch_endpoint(action_key: str = Form(default=""), subject: s
     )
 
 
+@app.post("/maintenance/cleanup", dependencies=[Depends(require_auth)])
+def maintenance_cleanup_endpoint(payload: MaintenanceCleanupRequest):
+    return maintenance_cleanup(
+        remove_missing_unit_refs=payload.remove_missing_unit_refs,
+        delete_old_workflows=payload.delete_old_workflows,
+        workflow_days=payload.workflow_days,
+        checkpoint_keep_latest=payload.checkpoint_keep_latest,
+        wal_checkpoint=payload.wal_checkpoint,
+        vacuum=payload.vacuum,
+    )
+
+
 @app.post("/sources/search", dependencies=[Depends(require_auth)])
 def search(payload: SearchRequest):
     return {"results": search_sources(payload.query, payload.source_types, payload.limit, payload.subject)}
@@ -1860,7 +1872,7 @@ def list_problem_packs_endpoint(subject: str = Query(default="")):
         pack_id = item.get("pack_id", "")
         item["solvepad_url"] = f"{PUBLIC_BASE_URL}/static/solvepad/index.html"
         item["open_url"] = item["solvepad_url"]
-        item["import_url"] = item["solvepad_url"]
+        item["device_save_mode"] = "optional"
         if token:
             item["legacy_import_url"] = f"{PUBLIC_BASE_URL}/static/solvepad/index.html?server={PUBLIC_BASE_URL}&importToken={token}"
         if pack_id:
@@ -1930,7 +1942,8 @@ def download_calculator_project_zip(project_id: str):
         if project.get("analysis_markdown"):
             archive.writestr("ANALYSIS.md", project.get("analysis_markdown", ""))
     mem.seek(0)
-    return StreamingResponse(mem, media_type="application/zip", headers={"Content-Disposition": f'attachment; filename="{project_id}-casio.zip"'})
+    zip_title = project.get("title") or project_id or "casio-prgm-project"
+    return StreamingResponse(mem, media_type="application/zip", headers=_safe_download_headers(zip_title, ".zip"))
 
 @app.post("/calculator/validate", dependencies=[Depends(require_auth)])
 def validate_calculator(payload: CalculatorBlueprintSave):
@@ -1943,6 +1956,33 @@ def generate_calculator(payload: CalculatorBlueprintSave):
     blueprint = _coerce_object_payload(payload.blueprint, payload.blueprint_json, "blueprint")
     validation = validate_blueprint(blueprint).as_dict()
     generated = generate_txt_files(blueprint).as_dict()
+    storage_mode = (payload.storage_mode or "device").strip().lower()
+    studio_url = f"{PUBLIC_BASE_URL}/static/casio/index.html"
+
+    if storage_mode != "server":
+        local_project_id = payload.replace_calculator_project_id or f"local-calc-{re.sub(r'[^0-9A-Za-z가-힣_-]+', '-', (payload.title or 'casio-prgm-project')).strip('-') or 'project'}"
+        return {
+            "ok": True,
+            "storage_mode": "device",
+            "calculator_project_id": local_project_id,
+            "local_project_id": local_project_id,
+            "source_id": "",
+            "source_type": "calculator_device_project",
+            "manual_source_id": "",
+            "analysis_source_id": "",
+            "program_source_ids": [],
+            "validation": validation,
+            "generated": generated,
+            "manual_markdown": payload.manual_markdown,
+            "analysis_markdown": payload.analysis_markdown,
+            "studio_url": studio_url,
+            "open_url": studio_url,
+            "casio_url": studio_url,
+            "download_url": f"{PUBLIC_BASE_URL}/calculator/generate.zip",
+            "program": "CASIO PRGM Studio",
+            "message": "Generated for device/local storage. It is not registered in server sources unless storage_mode='server'.",
+        }
+
     saved = save_calculator_blueprint(
         payload.title,
         blueprint,
@@ -1954,10 +1994,11 @@ def generate_calculator(payload: CalculatorBlueprintSave):
         payload.replace_calculator_project_id,
     )
     project_id = saved["calculator_project_id"]
-    studio_url = f"{PUBLIC_BASE_URL}/static/casio/index.html"
     shortcut_url = f"{studio_url}?projectId={project_id}"
     return {
         **saved,
+        "ok": True,
+        "storage_mode": "server",
         "validation": validation,
         "generated": generated,
         "manual_url": f"{PUBLIC_BASE_URL}/calculator/projects/{project_id}/manual",
@@ -1967,7 +2008,7 @@ def generate_calculator(payload: CalculatorBlueprintSave):
         "shortcut_url": shortcut_url,
         "download_url": f"{PUBLIC_BASE_URL}/calculator/projects/{project_id}/download.zip",
         "program": "CASIO PRGM Studio",
-        "message": "Saved and registered as calculator_project/calculator_program/calculator_manual/calculator_analysis. It appears in Calculator Studio's main repository list; links are only shortcuts.",
+        "message": "Saved to server because storage_mode='server'. Device/local storage is the default mode.",
     }
 
 
@@ -1984,4 +2025,5 @@ def generate_calculator_zip(payload: CalculatorBlueprintSave):
         if payload.analysis_markdown.strip():
             archive.writestr("ANALYSIS.md", payload.analysis_markdown)
     mem.seek(0)
-    return StreamingResponse(mem, media_type="application/zip", headers={"Content-Disposition": 'attachment; filename="casio-prgm-files.zip"'})
+    zip_title = payload.title or "casio-prgm-files"
+    return StreamingResponse(mem, media_type="application/zip", headers=_safe_download_headers(zip_title, ".zip"))

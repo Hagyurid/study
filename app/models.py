@@ -48,6 +48,7 @@ class ProblemPackSave(BaseModel):
 
 class CalculatorBlueprintSave(BaseModel):
     title: str = "CASIO PRGM Project"
+    storage_mode: str = "device"  # device(default): return files for browser/local storage. server: save to server repository.
     blueprint: Dict[str, Any] = Field(default_factory=dict)
     blueprint_json: str = ""
     metadata: Dict[str, Any] = Field(default_factory=dict)
@@ -167,3 +168,12 @@ class ExamCramSave(BaseModel):
     change_summary: str = "exam cram update"
     replace_latest: bool = False
     auto_slide_images: bool = True
+
+class MaintenanceCleanupRequest(BaseModel):
+    remove_missing_unit_refs: bool = True
+    delete_old_workflows: bool = False
+    workflow_days: int = 30
+    checkpoint_keep_latest: int = 5
+    wal_checkpoint: bool = True
+    vacuum: bool = False
+

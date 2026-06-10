@@ -1,0 +1,52 @@
+# v23 저장소 역할 분리 및 메모리 안정화 규칙
+
+이 문서는 기존 Custom GPT 지침에 추가·교체한다. 충돌 시 이 문서를 우선한다.
+
+## 1. 저장소 역할
+
+- 서버: 원본 자료, source_chunks, 단원 매핑, Study Note, exam_cram, 메인 저장소 problem_pack.
+- 기기: SolvePad 풀이 기록, 오답/정답 progress, 필기 strokes, 기기 저장 문제팩, CASIO PRGM TXT, 계산기 manual/analysis 기본 저장.
+- GPT: 서버 자료 검색·생성·저장·수정. 기기 IndexedDB의 오답/필기/계산기 로컬 저장 내용은 직접 조회할 수 없다.
+
+## 2. 문제팩
+
+- 문제팩 생성 시 `saveProblemPack`으로 서버 메인 저장소에 저장한다.
+- 저장된 문제팩은 `problem_pack`으로 source index에 등록되어야 한다.
+- SolvePad는 메인 저장소 문제팩을 목록에서 직접 열며, 기기 저장은 사용자가 선택한다.
+- `open_url`, `shortcut_url`은 바로가기일 뿐 자동 import/기기 저장 경로가 아니다.
+- “문제 불러오기”, JSON 붙여넣기, importToken 방식 안내 금지. 일반 사용자는 SolvePad의 문제팩 관리에서 메인 저장소 문제팩을 연다.
+
+## 3. 오답 관리
+
+- 오답/정답/북마크/필기 기록은 기기 IndexedDB에 저장된다.
+- GPT는 사용자의 로컬 오답 목록을 Action으로 직접 읽을 수 없다.
+- 오답 확인 요청 시 SolvePad → 오답 관리 화면 안내.
+- 오답 관리는 전체/과목별/시험지 세트별/단원별/문제팩별 필터를 사용한다.
+
+## 4. 계산기 PRGM
+
+- `generateCalculatorProgram` 기본 저장 방식은 `storage_mode="device"`다.
+- device 모드는 서버 sources에 `calculator_project`, `calculator_program`, `calculator_manual`, `calculator_analysis`를 등록하지 않는다.
+- 계산기 TXT/ZIP/manual/analysis는 계산기 Studio에서 기기 저장·다운로드한다.
+- 사용자가 명시적으로 “서버에도 저장”을 요청할 때만 `storage_mode="server"`를 사용한다.
+- 일반 답변에서 계산기 생성물이 서버 목록에 자동 저장된다고 말하지 않는다.
+
+## 5. 삭제·정리
+
+- `deleteSource`는 source, chunk, 관련 생성물 삭제와 함께 unit map/workflow 내부 삭제 참조 정리를 수행한다.
+- 삭제 후 매핑 누락이 의심되면 `getMappingStatus`로 확인한다.
+- 누적 정리는 `runMaintenanceCleanup` 사용.
+- `vacuum=true`는 무거운 작업이므로 사용자가 명시적으로 요청할 때만 사용한다.
+
+## 6. Dashboard/Search
+
+- `getDashboard`는 가벼운 상태 확인용이다. 상세 목록이 필요할 때만 개별 목록/상세 Action 사용.
+- `searchSources`는 subject, source_types, query, limit을 좁혀 사용한다.
+- 대용량 정리본/문제팩/전사본 작업은 workflow checkpoint로 나누어 진행한다.
+
+## 7. 사용자 안내 문구
+
+- 문제팩 열기: `https://study-xqe8.onrender.com/static/solvepad/index.html` → 문제팩 관리 → 메인 저장소 문제팩.
+- 오답 보기: SolvePad → 오답 관리.
+- 계산기: `https://study-xqe8.onrender.com/static/casio/index.html` → 기기 저장 프로젝트/다운로드.
+- 파일 정리: `/sources/manage`, 누적 정리: maintenance cleanup.

@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="manifest" href="manifest.json" />
-  <title>CASIO PRGM Studio</title>
+  <title>CASIO PRGM Studio v23</title>
   <style>
     :root { --bg:#0f172a; --panel:#111827; --panel2:#1f2937; --text:#e5e7eb; --muted:#9ca3af; --line:#334155; --accent:#38bdf8; --bad:#f87171; --warn:#fbbf24; --ok:#34d399; }
     * { box-sizing:border-box; } body { margin:0; font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; background:var(--bg); color:var(--text); }
@@ -22,7 +22,7 @@
 </head>
 <body>
 <header>
-  <div><h1>CASIO PRGM Studio</h1><div class="muted">GPT가 서버에 저장한 계산기 프로젝트가 자동으로 뜹니다</div></div>
+  <div><h1>CASIO PRGM Studio</h1><div class="muted">기기 저장 중심 · 서버 저장은 고급 옵션</div></div>
   <div class="row"><a class="btn secondary" href="/">홈</a><a class="btn secondary" href="/upload">자료 업로드</a><a class="btn secondary" href="/static/solvepad/index.html">SolvePad</a><button onclick="saveSettings()">설정 저장</button></div>
 </header>
 <main>
@@ -31,9 +31,9 @@
     <label>API Base URL</label><input id="apiBase" placeholder="https://study-xqe8.onrender.com" />
     <label>Action Key</label><input id="actionKey" type="password" placeholder="Render ACTION_API_KEY" />
     <label>과목 필터</label><input id="subject" placeholder="예: CRE" />
-    <div class="row"><button onclick="saveSettings()">저장</button><button class="secondary" onclick="listProjects()">저장 프로젝트 불러오기</button></div>
-    <div class="muted">Action Key는 이 브라우저 localStorage에만 저장됩니다. GPT가 저장한 계산기는 링크 없이 이 목록에 바로 표시됩니다.</div>
-    <h2 style="margin-top:18px">2. 저장된 계산기 프로젝트</h2>
+    <div class="row"><button onclick="saveSettings()">저장</button><button class="secondary" onclick="listProjects()">기기 프로젝트 새로고침</button></div>
+    <div class="muted">Action Key는 이 브라우저 localStorage에만 저장됩니다. 계산기 프로젝트는 기본적으로 이 기기에만 저장됩니다.</div>
+    <h2 style="margin-top:18px">2. 기기 저장 계산기 프로젝트</h2>
     <div id="projectList" class="list"><div class="item muted">목록 없음</div></div>
   </section>
   <section>
@@ -43,31 +43,49 @@
     <div id="panelBlueprint" class="panel active"><textarea id="blueprint" style="min-height:320px" placeholder='{"meta":{"strictFinalNames":true},"files":[{"name":"MAIN","lines":[{"type":"text","value":"HELLO"}]}]}'></textarea></div>
     <div id="panelAnalysis" class="panel"><textarea id="analysis" style="min-height:320px" placeholder="GPT가 먼저 자료를 분석해서 어떤 계산을 프로그램화할지 구상한 내용"></textarea></div>
     <div id="panelManual" class="panel"><textarea id="manual" style="min-height:320px" placeholder="최종 파일 사용법, 프로그램 구조, 변수 의미, 입력 순서, 주의사항"></textarea></div>
-    <div class="row"><button class="warn" onclick="validateBlueprint()">검사</button><button class="ok" onclick="generateAndSave()">TXT 생성 + 저장</button><button class="secondary" onclick="downloadZip()">TXT ZIP 다운로드</button><button class="secondary" onclick="downloadProjectZip()">프로젝트 ZIP</button><button class="bad" onclick="deleteCurrent()">현재 프로젝트 삭제</button></div>
+    <div class="row"><button class="warn" onclick="validateBlueprint()">검사</button><button class="ok" onclick="generateAndSave()">TXT 생성 + 기기 저장</button><button class="secondary" onclick="downloadZip()">TXT ZIP 다운로드</button><button class="secondary" onclick="downloadProjectZip()">현재 TXT ZIP</button><button class="secondary" onclick="saveToServerAdvanced()">서버 저장(고급)</button><button class="bad" onclick="deleteCurrent()">현재 프로젝트 삭제</button></div>
     <h2>결과</h2><div id="fileList" class="list" style="margin-bottom:10px"><div class="item muted">생성 파일 없음</div></div><pre id="output">결과 없음</pre>
   </section>
 </main>
 <script>
-const $ = id => document.getElementById(id); let selectedProjectId = new URLSearchParams(location.search).get('projectId') || '';
+const $ = id => document.getElementById(id);
+let selectedProjectId = new URLSearchParams(location.search).get('projectId') || '';
+let selectedProject = null;
+let db = null;
+const DB_NAME = 'casio_prgm_v23_device', DB_VERSION = 1;
+
 function apiBase(){ return ($('apiBase').value.trim() || location.origin).replace(/\/$/,''); }
 function headers(json=true){ const h={}; if(json) h['Content-Type']='application/json'; const k=$('actionKey').value || localStorage.getItem('lecturenote_action_key') || ''; if(k) h['X-Action-Key']=k; return h; }
 function msg(x){ $('output').textContent = typeof x === 'string' ? x : JSON.stringify(x,null,2); }
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function cap(s){return s.charAt(0).toUpperCase()+s.slice(1)}
+function showTab(name){ for(const n of ['blueprint','analysis','manual']){ $('tab'+cap(n)).classList.toggle('active',n===name); $('panel'+cap(n)).classList.toggle('active',n===name); } }
+function safeZipFilename(name){ const base=String(name||'CASIO PRGM Project').trim().replace(/[\\/:*?"<>|]+/g,'_').replace(/\s+/g,' ').replace(/^\.+|\.+$/g,'') || 'CASIO PRGM Project'; return base.toLowerCase().endsWith('.zip') ? base : base+'.zip'; }
+function safeId(title){return 'local-calc-'+(String(title||'project').trim().replace(/[^0-9A-Za-z가-힣_-]+/g,'-').replace(/^-+|-+$/g,'')||Date.now())}
+
+function openDB(){return new Promise((res,rej)=>{const r=indexedDB.open(DB_NAME,DB_VERSION);r.onupgradeneeded=e=>{const d=e.target.result;if(!d.objectStoreNames.contains('projects'))d.createObjectStore('projects',{keyPath:'id'})};r.onsuccess=()=>{db=r.result;res(db)};r.onerror=()=>rej(r.error)})}
+function store(mode='readonly'){return db.transaction('projects',mode).objectStore('projects')}
+function req(r){return new Promise((res,rej)=>{r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)})}
+async function putProject(p){return req(store('readwrite').put(p))}
+async function getProject(id){return req(store().get(id))}
+async function delProject(id){return req(store('readwrite').delete(id))}
+async function allProjects(){return req(store().getAll())}
+
 function saveSettings(){ localStorage.setItem('apiBase',$('apiBase').value.trim() || location.origin); localStorage.setItem('lecturenote_action_key',$('actionKey').value); localStorage.setItem('casio_subject',$('subject').value.trim()); localStorage.setItem('casio_blueprint_draft',$('blueprint').value); localStorage.setItem('casio_analysis_draft',$('analysis').value); localStorage.setItem('casio_manual_draft',$('manual').value); msg('설정 저장 완료'); }
 function loadSettings(){ $('apiBase').value=localStorage.getItem('apiBase') || location.origin; $('actionKey').value=localStorage.getItem('lecturenote_action_key') || ''; $('subject').value=localStorage.getItem('casio_subject') || ''; $('blueprint').value=localStorage.getItem('casio_blueprint_draft') || ''; $('analysis').value=localStorage.getItem('casio_analysis_draft') || ''; $('manual').value=localStorage.getItem('casio_manual_draft') || ''; }
 async function request(path, opts={}){ const res=await fetch(apiBase()+path,opts); const text=await res.text(); let data; try{data=JSON.parse(text)}catch{data=text} if(!res.ok) throw new Error(typeof data==='string'?data:JSON.stringify(data)); return data; }
 function blueprintObj(){ const raw=$('blueprint').value.trim(); if(!raw) throw new Error('설계도 JSON이 비어 있습니다.'); return JSON.parse(raw); }
-function payload(){ return {title:$('title').value || 'CASIO PRGM Project', blueprint:blueprintObj(), metadata:{subject:$('subject').value.trim(), origin:'casio-studio'}, analysis_markdown:$('analysis').value, manual_markdown:$('manual').value, replace_calculator_project_id:selectedProjectId || ''}; }
-function showTab(name){ for(const n of ['blueprint','analysis','manual']){ $('tab'+cap(n)).classList.toggle('active',n===name); $('panel'+cap(n)).classList.toggle('active',n===name); } } function cap(s){return s.charAt(0).toUpperCase()+s.slice(1)}
-async function validateBlueprint(){ try{ saveSettings(); const data=await request('/calculator/validate',{method:'POST',headers:headers(),body:JSON.stringify(payload())}); msg(data); }catch(e){ msg('오류: '+e.message); } }
-async function generateAndSave(){ try{ saveSettings(); const data=await request('/calculator/generate',{method:'POST',headers:headers(),body:JSON.stringify(payload())}); selectedProjectId=data.calculator_project_id; $('currentProject').textContent='선택: '+selectedProjectId; renderFiles(data.generated?.files||[]); msg(data); listProjects(); }catch(e){ msg('오류: '+e.message); } }
-async function downloadZip(){ try{ saveSettings(); const res=await fetch(apiBase()+'/calculator/generate.zip',{method:'POST',headers:headers(),body:JSON.stringify(payload())}); if(!res.ok) throw new Error(await res.text()); const blob=await res.blob(); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='casio-prgm-files.zip'; a.click(); URL.revokeObjectURL(a.href); }catch(e){ msg('오류: '+e.message); } }
-async function listProjects(){ try{ const subject=encodeURIComponent($('subject').value.trim()); const data=await request('/calculator/projects'+(subject?'?subject='+subject:''),{headers:headers(false)}); const list=data.calculator_projects||[]; $('projectList').innerHTML=list.length?'':'<div class="item muted">저장 프로젝트 없음</div>'; for(const p of list){ const el=document.createElement('div'); el.className='item'; el.innerHTML=`<b>${esc(p.title)}</b><div class="muted">${esc(p.subject||'미지정')} · ${esc(p.calculator_project_id)} · files ${p.file_count}</div>`; const load=document.createElement('button'); load.textContent='열기'; load.onclick=()=>loadProject(p.calculator_project_id); const manual=document.createElement('button'); manual.textContent='사용법'; manual.className='secondary'; manual.onclick=()=>window.open(apiBase()+`/calculator/projects/${encodeURIComponent(p.calculator_project_id)}/manual`); el.appendChild(load); el.appendChild(manual); $('projectList').appendChild(el); } msg(data); }catch(e){ msg('오류: '+e.message); } }
-async function loadProject(id){ try{ const data=await request(`/calculator/projects/${encodeURIComponent(id)}`,{headers:headers(false)}); selectedProjectId=id; $('currentProject').textContent='선택: '+id; $('title').value=data.title||''; $('blueprint').value=JSON.stringify(data.blueprint||{},null,2); $('analysis').value=data.analysis_markdown||''; $('manual').value=data.manual_markdown||''; renderFiles(data.generated?.files||[]); msg(data); }catch(e){ msg('오류: '+e.message); } }
-async function downloadProjectZip(){ if(!selectedProjectId) return msg('먼저 프로젝트를 열어야 합니다.'); try{ const res=await fetch(apiBase()+`/calculator/projects/${encodeURIComponent(selectedProjectId)}/download.zip`,{headers:headers(false)}); if(!res.ok) throw new Error(await res.text()); const blob=await res.blob(); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=selectedProjectId+'-casio.zip'; a.click(); URL.revokeObjectURL(a.href); }catch(e){ msg('오류: '+e.message); } }
-async function deleteCurrent(){ if(!selectedProjectId) return msg('삭제할 프로젝트가 선택되지 않았습니다.'); if(!confirm('현재 계산기 프로젝트를 삭제할까요?')) return; try{ const data=await request(`/calculator/projects/${encodeURIComponent(selectedProjectId)}`,{method:'DELETE',headers:headers(false)}); selectedProjectId=''; $('currentProject').textContent='미선택'; msg(data); listProjects(); }catch(e){ msg('오류: '+e.message); } }
-function renderFiles(files){ $('fileList').innerHTML=files.length?'':'<div class="item muted">생성 파일 없음</div>'; for(const f of files){ const el=document.createElement('div'); el.className='item'; const name=f.name||f.filename||f.fileName||'PROGRAM.TXT'; const raw=(f.content ?? f.program ?? f.code ?? f.text ?? ''); const content=String(raw); const body=content.trim()?esc(content):'<span class="muted">내용 없음</span>'; el.innerHTML=`<b>${esc(name)}</b><pre>${body}</pre>`; $('fileList').appendChild(el); } }
-function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
-loadSettings(); if(selectedProjectId){ loadProject(selectedProjectId); } else { listProjects(); } if('serviceWorker' in navigator) navigator.serviceWorker.register('./service-worker.js').catch(()=>{});
+function payload(storage_mode='device'){ return {title:$('title').value || 'CASIO PRGM Project', storage_mode, blueprint:blueprintObj(), metadata:{subject:$('subject').value.trim(), origin:'casio-studio'}, analysis_markdown:$('analysis').value, manual_markdown:$('manual').value, replace_calculator_project_id:storage_mode==='server' ? '' : (selectedProjectId || '')}; }
+async function validateBlueprint(){ try{ saveSettings(); const data=await request('/calculator/validate',{method:'POST',headers:headers(),body:JSON.stringify(payload('device'))}); msg(data); }catch(e){ msg('오류: '+e.message); } }
+async function generateAndSave(){ try{ saveSettings(); const data=await request('/calculator/generate',{method:'POST',headers:headers(),body:JSON.stringify(payload('device'))}); const id=selectedProjectId || data.local_project_id || safeId($('title').value); const project={id,title:$('title').value||'CASIO PRGM Project',subject:$('subject').value.trim(),blueprint:blueprintObj(),analysis_markdown:$('analysis').value,manual_markdown:$('manual').value,validation:data.validation||{},generated:data.generated||{},createdAt:selectedProject?.createdAt||new Date().toISOString(),updatedAt:new Date().toISOString(),storage_mode:'device'}; await putProject(project); selectedProjectId=id; selectedProject=project; $('currentProject').textContent='기기 저장: '+selectedProjectId; renderFiles(project.generated?.files||[]); msg({message:'기기 저장 완료',project}); listProjects(); }catch(e){ msg('오류: '+e.message); } }
+async function saveToServerAdvanced(){ if(!confirm('서버 sources/index에도 계산기 프로젝트를 저장할까요? 기본 권장값은 기기 저장입니다.'))return; try{ saveSettings(); const data=await request('/calculator/generate',{method:'POST',headers:headers(),body:JSON.stringify(payload('server'))}); msg(data); }catch(e){ msg('오류: '+e.message); } }
+async function downloadZip(){ try{ saveSettings(); const res=await fetch(apiBase()+'/calculator/generate.zip',{method:'POST',headers:headers(),body:JSON.stringify(payload('device'))}); if(!res.ok) throw new Error(await res.text()); const blob=await res.blob(); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=safeZipFilename($('title').value || 'CASIO PRGM Project'); a.click(); URL.revokeObjectURL(a.href); }catch(e){ msg('오류: '+e.message); } }
+async function downloadProjectZip(){ return downloadZip(); }
+async function listProjects(){ try{ const list=(await allProjects()).filter(p=>!$('subject').value.trim()||p.subject===$('subject').value.trim()).sort((a,b)=>String(b.updatedAt||'').localeCompare(String(a.updatedAt||''))); $('projectList').innerHTML=list.length?'':'<div class="item muted">기기 저장 프로젝트 없음</div>'; for(const p of list){ const el=document.createElement('div'); el.className='item'; const fileCount=(p.generated?.files||[]).length; el.innerHTML=`<b>${esc(p.title)}</b><div class="muted">기기 저장 · ${esc(p.subject||'미지정')} · ${esc(p.id)} · files ${fileCount}</div>`; const load=document.createElement('button'); load.textContent='열기'; load.onclick=()=>loadProject(p.id); const del=document.createElement('button'); del.textContent='삭제'; del.className='bad'; del.onclick=async()=>{if(confirm('기기 저장 프로젝트를 삭제할까요?')){await delProject(p.id);if(selectedProjectId===p.id){selectedProjectId='';selectedProject=null;$('currentProject').textContent='미선택'}listProjects()}}; el.appendChild(load); el.appendChild(del); $('projectList').appendChild(el); } msg({device_projects:list.length,projects:list.map(p=>({id:p.id,title:p.title,subject:p.subject,updatedAt:p.updatedAt}))}); }catch(e){ msg('오류: '+e.message); } }
+async function loadProject(id){ try{ let data=await getProject(id); if(!data){ data=await request(`/calculator/projects/${encodeURIComponent(id)}`,{headers:headers(false)}); data={id,title:data.title||id,subject:data.metadata?.subject||'',blueprint:data.blueprint||{},analysis_markdown:data.analysis_markdown||'',manual_markdown:data.manual_markdown||'',generated:data.generated||{},validation:data.validation||{},storage_mode:'server-imported'}; } selectedProjectId=id; selectedProject=data; $('currentProject').textContent=(data.storage_mode==='device'?'기기 저장: ':'선택: ')+id; $('title').value=data.title||''; $('subject').value=data.subject||data.metadata?.subject||$('subject').value; $('blueprint').value=JSON.stringify(data.blueprint||{},null,2); $('analysis').value=data.analysis_markdown||''; $('manual').value=data.manual_markdown||''; renderFiles(data.generated?.files||[]); msg(data); }catch(e){ msg('오류: '+e.message); } }
+async function deleteCurrent(){ if(!selectedProjectId) return msg('삭제할 프로젝트가 선택되지 않았습니다.'); if(!confirm('현재 기기 저장 프로젝트를 삭제할까요?')) return; try{ await delProject(selectedProjectId); selectedProjectId=''; selectedProject=null; $('currentProject').textContent='미선택'; renderFiles([]); msg('기기 저장 프로젝트 삭제 완료'); listProjects(); }catch(e){ msg('오류: '+e.message); } }
+function renderFiles(files){ $('fileList').innerHTML=files.length?'':'<div class="item muted">생성 파일 없음</div>'; for(const f of files){ const el=document.createElement('div'); el.className='item'; const name=f.name||f.filename||f.fileName||'PROGRAM.TXT'; const raw=(f.content ?? f.program ?? f.code ?? f.text ?? ''); const content=String(raw); const body=content.trim()?esc(content):'<span class="muted">내용 없음</span>'; const btn=document.createElement('button'); btn.textContent='TXT 다운로드'; btn.onclick=()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([content],{type:'text/plain'}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}; el.innerHTML=`<b>${esc(name)}</b><pre>${body}</pre>`; el.appendChild(btn); $('fileList').appendChild(el); } }
+(async function init(){ loadSettings(); await openDB(); if(selectedProjectId){ await loadProject(selectedProjectId); } else { await listProjects(); } if('serviceWorker' in navigator) navigator.serviceWorker.register('./service-worker.js').catch(()=>{}); })();
 </script>
 </body>
 </html>

@@ -433,7 +433,8 @@ def test_calculator_generate_manual_and_replace_flow():
         "blueprint": blueprint,
         "metadata": {"subject": "CRE"},
         "analysis_markdown": "# 분석\n계산 흐름 구상",
-        "manual_markdown": "# 사용법\nMAIN을 실행한다."
+        "manual_markdown": "# 사용법\nMAIN을 실행한다.",
+        "storage_mode": "server"
     }
     generated = client.post("/calculator/generate", json=payload)
     assert generated.status_code == 200
@@ -468,7 +469,8 @@ def test_calculator_blueprint_json_fallback_and_open_url():
     response = client.post("/calculator/generate", json={
         "title": "Calc JSON Fallback",
         "blueprint_json": json.dumps(blueprint, ensure_ascii=False),
-        "metadata": {"subject": "CRE"}
+        "metadata": {"subject": "CRE"},
+        "storage_mode": "server"
     })
     assert response.status_code == 200
     data = response.json()
@@ -859,7 +861,8 @@ def test_calculator_project_program_and_analysis_are_searchable_sources():
         "blueprint": blueprint,
         "metadata": {"subject": "CRE", "unitNumber": "1", "unitTitle": "Batch Reactor"},
         "analysis_markdown": "# Analysis\nreactor conversion calculation",
-        "manual_markdown": "# Manual\nRun MAIN for reactor conversion."
+        "manual_markdown": "# Manual\nRun MAIN for reactor conversion.",
+        "storage_mode": "server"
     })
     assert response.status_code == 200
     data = response.json()
@@ -970,7 +973,8 @@ def test_artifact_storage_creates_source_rows_not_only_private_tables():
         "blueprint": blueprint,
         "metadata": {"subject": "STORE", "unitNumber": "2", "unitTitle": "Indexed Artifacts"},
         "analysis_markdown": "storage analysis source row check",
-        "manual_markdown": "storage manual source row check"
+        "manual_markdown": "storage manual source row check",
+        "storage_mode": "server"
     })
     assert saved_calc.status_code == 200
     calc_data = saved_calc.json()
@@ -1072,3 +1076,150 @@ def test_study_static_right_rail_and_image_controls():
     assert "applyImageScaleToAll" in app_js
     assert "image-scale-tools" in app_js
     assert "height:auto" in styles and "object-fit:contain" in styles
+
+
+def test_file_manager_batch_pdf_print_and_problem_solution_pages():
+    note = client.post('/study/notes', json={
+        'title': 'Batch Print Note',
+        'subject': 'PRINT',
+        'source_type': 'generated_note',
+        'content_markdown': '# Batch Print\n\n본문 내용',
+    })
+    assert note.status_code == 200
+    note_id = note.json()['source_id']
+
+    pack = {
+        'packId': 'print-pack',
+        'title': 'Print Pack',
+        'subject': 'PRINT',
+        'questions': [{
+            'id': 'q001',
+            'title': 'Print Q1',
+            'promptMd': '문제를 풀어라.',
+            'choices': [{'label': 'A', 'text': '선택 1'}, {'label': 'B', 'text': '선택 2'}],
+            'answer': {'value': 'A'},
+            'solution': {'concepts': ['개념'], 'actualSolution': ['해설'], 'cautions': ['주의'], 'tips': ['팁']}
+        }]
+    }
+    saved = client.post('/problem-packs', json={'title': 'Print Pack', 'pack': pack})
+    assert saved.status_code == 200
+    pack_source_id = saved.json()['source_id']
+
+    manage = client.get('/sources/manage')
+    assert manage.status_code == 200
+    assert '선택 문서 통합 PDF' in manage.text
+    assert '선택 문제지 PDF' in manage.text
+    assert '선택 해설지 PDF' in manage.text
+
+    bundle = client.post('/sources/print-bundle', data={'source_ids': [note_id, pack_source_id]})
+    assert bundle.status_code == 200
+    assert '통합 PDF 인쇄' in bundle.text
+    assert 'Batch Print' in bundle.text
+    assert '문제팩은 파일 관리' in bundle.text
+
+    questions = client.post('/sources/problem-packs/print?mode=questions', data={'source_ids': [pack_source_id]})
+    assert questions.status_code == 200
+    assert 'SolvePad 문제지 PDF' in questions.text
+    assert '풀이 공간' in questions.text
+    assert '문제를 풀어라' in questions.text
+
+    solutions = client.post('/sources/problem-packs/print?mode=solutions', data={'source_ids': [pack_source_id]})
+    assert solutions.status_code == 200
+    assert 'SolvePad 해설지 PDF' in solutions.text
+    assert '정답' in solutions.text
+    assert '해설' in solutions.text
+
+
+def test_file_manager_print_bundle_uses_unit_map_order():
+    later = client.post('/study/notes', json={
+        'title': 'PRINT_ORDER 2단원 정리',
+        'subject': 'PRINT_ORDER',
+        'source_type': 'generated_note',
+        'unitNumber': '2',
+        'unitTitle': 'Second Unit',
+        'content_markdown': '# Second Unit\n\nsecond body',
+    })
+    first = client.post('/study/notes', json={
+        'title': 'PRINT_ORDER 1단원 정리',
+        'subject': 'PRINT_ORDER',
+        'source_type': 'generated_note',
+        'unitNumber': '1',
+        'unitTitle': 'First Unit',
+        'content_markdown': '# First Unit\n\nfirst body',
+    })
+    assert later.status_code == 200
+    assert first.status_code == 200
+    later_id = later.json()['source_id']
+    first_id = first.json()['source_id']
+
+    saved_map = client.post('/unit-maps', json={
+        'title': 'PRINT_ORDER 단원 매핑',
+        'source_ids': [first_id, later_id],
+        'map': {
+            'schemaVersion': 'lecturenote.unitMap.v2',
+            'mappingBasis': 'lecture_slides',
+            'units': [
+                {'unitId': 'u001', 'unitNumber': '1', 'unitTitle': 'First Unit', 'generatedNote': [{'sourceId': first_id}]},
+                {'unitId': 'u002', 'unitNumber': '2', 'unitTitle': 'Second Unit', 'generatedNote': [{'sourceId': later_id}]},
+            ],
+            'unmapped': [],
+        },
+    })
+    assert saved_map.status_code == 200
+
+    printed = client.post('/sources/print-bundle', data={'source_ids': [later_id, first_id]})
+    assert printed.status_code == 200
+    assert '매핑 기준 자동 정렬' in printed.text
+    assert printed.text.index('1. PRINT_ORDER 1단원 정리') < printed.text.index('2. PRINT_ORDER 2단원 정리')
+
+
+def test_calculator_direct_content_and_filename_generate_nonempty_txt():
+    blueprint = {
+        "meta": {"graphEnabled": False, "strictFinalNames": True},
+        "files": [
+            {"filename": "EPVD.txt", "content": "1+1->A\nADisp"},
+            {"name": "MAIN", "lines": [{"type": "text", "value": "HELLO"}]},
+        ],
+    }
+    response = client.post("/calculator/generate", json={
+        "title": "Direct Content Calc",
+        "blueprint": blueprint,
+        "metadata": {"subject": "CALC_DIRECT"},
+        "manual_markdown": "# 사용법\nEPVD를 실행한다.",
+    })
+    assert response.status_code == 200
+    files = {item["name"]: item["content"] for item in response.json()["generated"]["files"]}
+    assert files["EPVD.txt"].strip() == "1+1->A\nADisp"
+    assert files["MAIN.txt"].strip() == "HELLO"
+
+
+def test_file_manager_calculator_manual_pdf_button_and_print_endpoint():
+    blueprint = {
+        "meta": {"graphEnabled": False, "strictFinalNames": True},
+        "files": [{"filename": "MANUAL.txt", "content": "1+1->A\nADisp"}],
+    }
+    response = client.post("/calculator/generate", json={
+        "title": "Manual Print Calculator",
+        "blueprint": blueprint,
+        "metadata": {"subject": "MANUAL_PRINT"},
+        "manual_markdown": "# 계산기 사용법\nMANUAL 프로그램을 실행한다.",
+        "storage_mode": "server",
+    })
+    assert response.status_code == 200
+    data = response.json()
+    project_source_id = data["source_id"]
+    manual_source_id = data["manual_source_id"]
+
+    manage = client.get("/sources/manage")
+    assert manage.status_code == 200
+    assert "선택 계산기 사용법 PDF" in manage.text
+    assert "/sources/calculator-manuals/print" in manage.text
+
+    by_project = client.post("/sources/calculator-manuals/print", data={"source_ids": [project_source_id]})
+    assert by_project.status_code == 200
+    assert "계산기 사용법 PDF" in by_project.text
+    assert "MANUAL 프로그램을 실행한다" in by_project.text
+
+    by_manual = client.post("/sources/calculator-manuals/print", data={"source_ids": [manual_source_id]})
+    assert by_manual.status_code == 200
+    assert "MANUAL 프로그램을 실행한다" in by_manual.text

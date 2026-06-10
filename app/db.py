@@ -2,7 +2,7 @@ import json
 import re
 import secrets
 import sqlite3
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
@@ -223,6 +223,9 @@ def init_db() -> None:
         _ensure_column(db, "problem_packs", "unit_title", "TEXT NOT NULL DEFAULT ''")
         _ensure_column(db, "problem_packs", "tags", "TEXT NOT NULL DEFAULT '[]'")
         _ensure_column(db, "problem_packs", "source_refs", "TEXT NOT NULL DEFAULT '[]'")
+        _ensure_column(db, "problem_packs", "exam_set_id", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(db, "problem_packs", "exam_set_title", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(db, "problem_packs", "question_count", "INTEGER NOT NULL DEFAULT 0")
         _ensure_column(db, "calculator_blueprints", "manual_markdown", "TEXT NOT NULL DEFAULT ''")
         _ensure_column(db, "calculator_blueprints", "manual_source_id", "TEXT NOT NULL DEFAULT ''")
         _ensure_column(db, "calculator_blueprints", "analysis_markdown", "TEXT NOT NULL DEFAULT ''")
@@ -570,13 +573,13 @@ def _limit_items(items: List[Dict[str, Any]], limit: int) -> List[Dict[str, Any]
     return list(items or [])[: max(0, int(limit or 0))]
 
 
-def get_dashboard(subject: str = "", limit: int = 8) -> Dict[str, Any]:
+def get_dashboard(subject: str = "", limit: int = 5) -> Dict[str, Any]:
     """Compact dashboard for Custom GPT menu/status calls.
 
     This intentionally returns summaries and short lists only, so the GPT can show
     menus/status without calling several separate Actions or pulling large data.
     """
-    limit = max(1, min(int(limit or 8), 20))
+    limit = max(1, min(int(limit or 5), 10))
     sources = list_sources(subject=subject)
     subjects = sorted({source.get("subject", "") for source in list_sources() if source.get("subject", "")})
 
@@ -620,7 +623,14 @@ def get_dashboard(subject: str = "", limit: int = 8) -> Dict[str, Any]:
             "problemPackCount": len(problem_packs),
             "calculatorProjectCount": len(calculator_projects),
             "activeWorkflowRunCount": len(active_runs),
+            "deletedOrMissingReferenceCount": mapping.get("summary", {}).get("deletedOrMissingReferenceCount", 0),
         },
+        "warnings": [
+            item for item in [
+                {"type": "missing_refs", "count": mapping.get("summary", {}).get("deletedOrMissingReferenceCount", 0), "message": "삭제되었거나 누락된 source 참조가 있습니다."} if mapping.get("summary", {}).get("deletedOrMissingReferenceCount", 0) else None,
+                {"type": "active_workflows", "count": len(active_runs), "message": "진행 중이거나 중단된 workflow가 있습니다."} if active_runs else None,
+            ] if item
+        ],
         "bySourceType": by_type,
         "recentSources": _limit_items(sources, limit),
         "unmappedSources": _limit_items(mapping.get("unmappedSources", []), limit),
@@ -823,7 +833,138 @@ def list_study_notes(subject: str = "", source_type: str = "") -> List[Dict[str,
     return result
 
 
-def delete_source(source_id: str, delete_file: bool = True) -> Dict[str, Any]:
+
+def _remove_source_ref_from_json(value: Any, source_id: str) -> tuple[Any, int]:
+    """Remove a source_id from nested mapping JSON while keeping structure stable."""
+    removed = 0
+    if isinstance(value, dict):
+        cleaned: Dict[str, Any] = {}
+        for key, item in value.items():
+            if key in {"sourceId", "source_id"} and str(item) == source_id:
+                removed += 1
+                continue
+            new_item, count = _remove_source_ref_from_json(item, source_id)
+            removed += count
+            if key == "lectureAnchor" and isinstance(new_item, dict) and not new_item.get("sourceId"):
+                # Keep the anchor shape, but mark it for review instead of silently deleting the whole unit.
+                new_item["sourceId"] = ""
+                new_item["basis"] = (new_item.get("basis") or "") + " CHECK SOURCE: deleted source reference removed"
+            cleaned[key] = new_item
+        return cleaned, removed
+    if isinstance(value, list):
+        cleaned_list: List[Any] = []
+        for item in value:
+            if isinstance(item, str) and item == source_id:
+                removed += 1
+                continue
+            if isinstance(item, dict) and str(item.get("sourceId") or item.get("source_id") or "") == source_id:
+                removed += 1
+                continue
+            new_item, count = _remove_source_ref_from_json(item, source_id)
+            removed += count
+            cleaned_list.append(new_item)
+        return cleaned_list, removed
+    return value, 0
+
+
+def cleanup_deleted_source_refs(source_id: str) -> Dict[str, Any]:
+    """Remove references to a deleted source from unit maps and workflow metadata/checkpoints."""
+    source_id = str(source_id or "").strip()
+    if not source_id:
+        return {"removed_unit_map_refs": 0, "removed_workflow_refs": 0, "updated_unit_maps": 0, "updated_workflows": 0, "updated_checkpoints": 0}
+    removed_unit_refs = 0
+    removed_workflow_refs = 0
+    updated_unit_maps = 0
+    updated_workflows = 0
+    updated_checkpoints = 0
+    ts = now()
+    with conn() as db:
+        rows = db.execute("SELECT id,source_ids,map_json FROM unit_maps").fetchall()
+        for row in rows:
+            source_ids = _safe_json_loads(row["source_ids"], [])
+            map_json = _safe_json_loads(row["map_json"], {})
+            old_source_ids = list(source_ids) if isinstance(source_ids, list) else []
+            new_source_ids = [sid for sid in old_source_ids if str(sid) != source_id]
+            removed = len(old_source_ids) - len(new_source_ids)
+            new_map, count = _remove_source_ref_from_json(map_json, source_id)
+            removed += count
+            if removed:
+                removed_unit_refs += removed
+                updated_unit_maps += 1
+                db.execute(
+                    "UPDATE unit_maps SET source_ids=?, map_json=?, updated_at=? WHERE id=?",
+                    (json.dumps(new_source_ids, ensure_ascii=False), json.dumps(new_map, ensure_ascii=False), ts, row["id"]),
+                )
+
+        rows = db.execute("SELECT id,metadata FROM workflow_runs").fetchall()
+        for row in rows:
+            metadata = _safe_json_loads(row["metadata"], {})
+            new_meta, count = _remove_source_ref_from_json(metadata, source_id)
+            if count:
+                removed_workflow_refs += count
+                updated_workflows += 1
+                db.execute("UPDATE workflow_runs SET metadata=?, updated_at=? WHERE id=?", (json.dumps(new_meta, ensure_ascii=False), ts, row["id"]))
+
+        rows = db.execute("SELECT id,saved_refs FROM workflow_checkpoints").fetchall()
+        for row in rows:
+            saved_refs = _safe_json_loads(row["saved_refs"], {})
+            new_refs, count = _remove_source_ref_from_json(saved_refs, source_id)
+            if count:
+                removed_workflow_refs += count
+                updated_checkpoints += 1
+                db.execute("UPDATE workflow_checkpoints SET saved_refs=? WHERE id=?", (json.dumps(new_refs, ensure_ascii=False), row["id"]))
+    return {
+        "removed_unit_map_refs": removed_unit_refs,
+        "removed_workflow_refs": removed_workflow_refs,
+        "updated_unit_maps": updated_unit_maps,
+        "updated_workflows": updated_workflows,
+        "updated_checkpoints": updated_checkpoints,
+    }
+
+
+def cleanup_missing_unit_refs() -> Dict[str, Any]:
+    """Remove source references from unit maps when the source no longer exists."""
+    with conn() as db:
+        existing = {row["id"] for row in db.execute("SELECT id FROM sources").fetchall()}
+        rows = db.execute("SELECT source_ids,map_json FROM unit_maps").fetchall()
+    refs: Set[str] = set()
+    for row in rows:
+        for sid in _safe_json_loads(row["source_ids"], []):
+            if sid:
+                refs.add(str(sid))
+        mapping = _safe_json_loads(row["map_json"], {})
+        def walk(x: Any) -> None:
+            if isinstance(x, dict):
+                sid = x.get("sourceId") or x.get("source_id")
+                if sid:
+                    refs.add(str(sid))
+                for v in x.values():
+                    walk(v)
+            elif isinstance(x, list):
+                for v in x:
+                    walk(v)
+        walk(mapping)
+    missing = sorted(sid for sid in refs if sid and sid not in existing)
+    total_unit = total_workflow = 0
+    updated_maps = updated_runs = updated_checkpoints = 0
+    for sid in missing:
+        result = cleanup_deleted_source_refs(sid)
+        total_unit += int(result.get("removed_unit_map_refs", 0))
+        total_workflow += int(result.get("removed_workflow_refs", 0))
+        updated_maps += int(result.get("updated_unit_maps", 0))
+        updated_runs += int(result.get("updated_workflows", 0))
+        updated_checkpoints += int(result.get("updated_checkpoints", 0))
+    return {
+        "missing_source_ids": missing,
+        "missing_ref_count": len(missing),
+        "removed_unit_map_refs": total_unit,
+        "removed_workflow_refs": total_workflow,
+        "updated_unit_maps": updated_maps,
+        "updated_workflows": updated_runs,
+        "updated_checkpoints": updated_checkpoints,
+    }
+
+def delete_source(source_id: str, delete_file: bool = True, cleanup_refs: bool = True) -> Dict[str, Any]:
     source = get_source(source_id)
     if not source:
         return {}
@@ -852,6 +993,7 @@ def delete_source(source_id: str, delete_file: bool = True) -> Dict[str, Any]:
         db.execute("DELETE FROM transcript_revisions WHERE corrected_source_id=?", (source_id,))
         db.execute("DELETE FROM problem_packs WHERE source_id=?", (source_id,))
         db.execute("DELETE FROM sources WHERE id=?", (source_id,))
+    cleanup_report = cleanup_deleted_source_refs(source_id) if cleanup_refs else {}
     return {
         "ok": True,
         "deleted_source_id": source_id,
@@ -859,6 +1001,7 @@ def delete_source(source_id: str, delete_file: bool = True) -> Dict[str, Any]:
         "deleted_chunks": int(chunk_count or 0),
         "deleted_file": deleted_file,
         "file_error": file_error,
+        **cleanup_report,
     }
 
 
@@ -1541,6 +1684,16 @@ def _problem_pack_text(title: str, pack_id: str, pack: Dict[str, Any], subject: 
     ])
 
 
+
+def _pack_exam_set_id(pack: Dict[str, Any]) -> str:
+    meta = pack.get("metadata", {}) if isinstance(pack, dict) else {}
+    return str(pack.get("examSetId") or pack.get("exam_set_id") or meta.get("examSetId") or meta.get("exam_set_id") or "").strip()
+
+
+def _pack_exam_set_title(pack: Dict[str, Any]) -> str:
+    meta = pack.get("metadata", {}) if isinstance(pack, dict) else {}
+    return str(pack.get("examSetTitle") or pack.get("exam_set_title") or meta.get("examSetTitle") or meta.get("exam_set_title") or "").strip()
+
 def save_problem_pack(title: str, pack: Dict[str, Any], subject: str = "", unit_number: str = "", unit_title: str = "", tags: Optional[List[str]] = None, source_refs: Optional[List[str]] = None) -> Dict[str, Any]:
     pack_id = pack.get("packId") or pack.get("pack_id") or make_id("pack")
     token = secrets.token_urlsafe(16)
@@ -1549,6 +1702,9 @@ def save_problem_pack(title: str, pack: Dict[str, Any], subject: str = "", unit_
     unit_title = _pack_unit_title(pack, unit_title)
     tags = _pack_tags(pack, tags)
     source_refs = _pack_source_refs(pack, source_refs)
+    exam_set_id = _pack_exam_set_id(pack)
+    exam_set_title = _pack_exam_set_title(pack)
+    question_count = len(pack.get("questions", [])) if isinstance(pack.get("questions"), list) else 0
 
     old_source_id = ""
     with conn() as db:
@@ -1572,21 +1728,13 @@ def save_problem_pack(title: str, pack: Dict[str, Any], subject: str = "", unit_
     with conn() as db:
         db.execute(
             """
-            INSERT OR REPLACE INTO problem_packs(id,title,token,pack_json,created_at,source_id,subject,unit_number,unit_title,tags,source_refs)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?)
+            INSERT OR REPLACE INTO problem_packs(id,title,token,pack_json,created_at,source_id,subject,unit_number,unit_title,tags,source_refs,exam_set_id,exam_set_title,question_count)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
-            (pack_id, title, token, json.dumps(pack, ensure_ascii=False), now(), source_id, subject, unit_number, unit_title, json.dumps(tags, ensure_ascii=False), json.dumps(source_refs, ensure_ascii=False)),
+            (pack_id, title, token, json.dumps(pack, ensure_ascii=False), now(), source_id, subject, unit_number, unit_title, json.dumps(tags, ensure_ascii=False), json.dumps(source_refs, ensure_ascii=False), exam_set_id, exam_set_title, question_count),
         )
-    return {"pack_id": pack_id, "token": token, "source_id": source_id, "source_type": "problem_pack", "subject": subject, "unitNumber": unit_number, "unitTitle": unit_title}
+    return {"pack_id": pack_id, "token": token, "source_id": source_id, "source_type": "problem_pack", "subject": subject, "unitNumber": unit_number, "unitTitle": unit_title, "examSetId": exam_set_id, "examSetTitle": exam_set_title, "question_count": question_count}
 
-
-def get_problem_pack_by_token(token: str) -> Optional[Dict[str, Any]]:
-    with conn() as db:
-        row = db.execute("SELECT * FROM problem_packs WHERE token=?", (token,)).fetchone()
-    if not row:
-        return None
-    data = dict(row)
-    return {"pack": json.loads(data["pack_json"]), "title": data["title"], "pack_id": data["id"], "source_id": data.get("source_id", "")}
 
 
 def get_problem_pack_by_id(pack_id: str) -> Optional[Dict[str, Any]]:
@@ -1595,18 +1743,28 @@ def get_problem_pack_by_id(pack_id: str) -> Optional[Dict[str, Any]]:
     if not row:
         return None
     data = dict(row)
+    pack = json.loads(data.get("pack_json") or "{}")
     return {
-        "pack": json.loads(data["pack_json"]),
-        "title": data["title"],
-        "pack_id": data["id"],
-        "token": data.get("token", ""),
+        "pack": pack,
+        "title": data.get("title", ""),
+        "pack_id": data.get("id", ""),
         "source_id": data.get("source_id", ""),
-        "source_type": "problem_pack",
         "subject": data.get("subject", ""),
         "unitNumber": data.get("unit_number", ""),
         "unitTitle": data.get("unit_title", ""),
+        "examSetId": data.get("exam_set_id", "") or _pack_exam_set_id(pack),
+        "examSetTitle": data.get("exam_set_title", "") or _pack_exam_set_title(pack),
+        "question_count": int(data.get("question_count") or 0),
         "created_at": data.get("created_at", ""),
     }
+
+def get_problem_pack_by_token(token: str) -> Optional[Dict[str, Any]]:
+    with conn() as db:
+        row = db.execute("SELECT * FROM problem_packs WHERE token=?", (token,)).fetchone()
+    if not row:
+        return None
+    data = dict(row)
+    return {"pack": json.loads(data["pack_json"]), "title": data["title"], "pack_id": data["id"], "source_id": data.get("source_id", "")}
 
 
 def list_problem_packs(subject: str = "") -> List[Dict[str, Any]]:
@@ -1624,14 +1782,15 @@ def list_problem_packs(subject: str = "") -> List[Dict[str, Any]]:
         questions = pack.get("questions") if isinstance(pack, dict) else []
         result.append({
             "pack_id": data.get("id", ""),
-            "token": data.get("token", ""),
             "title": data.get("title", ""),
             "source_id": data.get("source_id", ""),
             "source_type": "problem_pack",
             "subject": data.get("subject", ""),
             "unitNumber": data.get("unit_number", ""),
             "unitTitle": data.get("unit_title", ""),
-            "question_count": len(questions) if isinstance(questions, list) else 0,
+            "question_count": int(data.get("question_count") or (len(questions) if isinstance(questions, list) else 0)),
+            "examSetId": data.get("exam_set_id", "") or _pack_exam_set_id(pack),
+            "examSetTitle": data.get("exam_set_title", "") or _pack_exam_set_title(pack),
             "tags": _artifact_list(data.get("tags", "[]")),
             "source_refs": _artifact_list(data.get("source_refs", "[]")),
             "created_at": data.get("created_at", ""),
@@ -1864,6 +2023,60 @@ def delete_calculator_blueprint(project_id: str) -> Dict[str, Any]:
     _delete_sources_quiet(source_ids)
     return {"ok": True, "deleted_calculator_project_id": project_id, "title": project.get("title", ""), "deleted_source_ids": [sid for sid in source_ids if sid]}
 
+
+
+def cleanup_old_workflows(days: int = 30, checkpoint_keep_latest: int = 5) -> Dict[str, Any]:
+    days = max(1, int(days or 30))
+    checkpoint_keep_latest = max(0, int(checkpoint_keep_latest or 0))
+    cutoff = (datetime.now(UTC) - timedelta(days=days)).isoformat().replace("+00:00", "Z")
+    deleted_runs = 0
+    deleted_checkpoints = 0
+    trimmed_checkpoints = 0
+    with conn() as db:
+        old_runs = [row["id"] for row in db.execute("SELECT id FROM workflow_runs WHERE status IN ('completed','failed') AND updated_at < ?", (cutoff,)).fetchall()]
+        for run_id in old_runs:
+            deleted_checkpoints += db.execute("DELETE FROM workflow_checkpoints WHERE run_id=?", (run_id,)).rowcount or 0
+            deleted_runs += db.execute("DELETE FROM workflow_runs WHERE id=?", (run_id,)).rowcount or 0
+        if checkpoint_keep_latest >= 0:
+            runs = [row["id"] for row in db.execute("SELECT id FROM workflow_runs").fetchall()]
+            for run_id in runs:
+                rows = db.execute("SELECT id FROM workflow_checkpoints WHERE run_id=? ORDER BY created_at DESC", (run_id,)).fetchall()
+                stale = [row["id"] for row in rows[checkpoint_keep_latest:]]
+                for checkpoint_id in stale:
+                    trimmed_checkpoints += db.execute("DELETE FROM workflow_checkpoints WHERE id=?", (checkpoint_id,)).rowcount or 0
+    return {"deleted_workflow_runs": deleted_runs, "deleted_workflow_checkpoints": deleted_checkpoints, "trimmed_workflow_checkpoints": trimmed_checkpoints, "workflow_cutoff": cutoff}
+
+
+def maintenance_cleanup(
+    remove_missing_unit_refs: bool = True,
+    delete_old_workflows: bool = False,
+    workflow_days: int = 30,
+    checkpoint_keep_latest: int = 5,
+    wal_checkpoint: bool = True,
+    vacuum: bool = False,
+) -> Dict[str, Any]:
+    result: Dict[str, Any] = {"ok": True, "actions": []}
+    if remove_missing_unit_refs:
+        result["missing_refs"] = cleanup_missing_unit_refs()
+        result["actions"].append("remove_missing_unit_refs")
+    if delete_old_workflows:
+        result["workflow_cleanup"] = cleanup_old_workflows(workflow_days, checkpoint_keep_latest)
+        result["actions"].append("delete_old_workflows")
+    with conn() as db:
+        if wal_checkpoint:
+            try:
+                result["wal_checkpoint"] = [tuple(row) for row in db.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchall()]
+                result["actions"].append("wal_checkpoint")
+            except Exception as exc:
+                result["wal_checkpoint_error"] = str(exc)
+        if vacuum:
+            try:
+                db.execute("VACUUM")
+                result["vacuum"] = True
+                result["actions"].append("vacuum")
+            except Exception as exc:
+                result["vacuum_error"] = str(exc)
+    return result
 
 def save_unit_map(title: str, source_ids: List[str], map_json: Dict[str, Any], created_by: str = "gpt") -> Dict[str, Any]:
     map_id = make_id("map")
