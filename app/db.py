@@ -4,7 +4,7 @@ import secrets
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from app.config import DATABASE_PATH
 
@@ -982,6 +982,52 @@ def cleanup_missing_unit_refs() -> Dict[str, Any]:
         "updated_checkpoints": updated_checkpoints,
     }
 
+
+def _json_deep_contains(value: Any, needle: str) -> bool:
+    if not needle:
+        return False
+    if isinstance(value, str):
+        return needle in value
+    if isinstance(value, dict):
+        return any(_json_deep_contains(v, needle) for v in value.values())
+    if isinstance(value, list):
+        return any(_json_deep_contains(v, needle) for v in value)
+    return False
+
+
+def _loads_json_safe(raw: str, default: Any) -> Any:
+    try:
+        return json.loads(raw or "")
+    except Exception:
+        return default
+
+
+def _collect_note_series_for_source(db: sqlite3.Connection, source_id: str) -> Tuple[List[str], List[str]]:
+    rows = db.execute("SELECT series_id FROM note_versions WHERE source_id=?", (source_id,)).fetchall()
+    series_ids = sorted({row["series_id"] for row in rows if row["series_id"]})
+    if not series_ids:
+        return [], []
+    version_source_ids: set[str] = set()
+    for sid in series_ids:
+        for row in db.execute("SELECT source_id FROM note_versions WHERE series_id=?", (sid,)).fetchall():
+            if row["source_id"]:
+                version_source_ids.add(row["source_id"])
+    return series_ids, sorted(version_source_ids)
+
+
+def _collect_problem_packs_for_source(db: sqlite3.Connection, source_id: str) -> List[sqlite3.Row]:
+    rows = db.execute("SELECT * FROM problem_packs").fetchall()
+    linked: List[sqlite3.Row] = []
+    for row in rows:
+        if row["source_id"] == source_id:
+            linked.append(row)
+            continue
+        source_refs = _loads_json_safe(row["source_refs"] if "source_refs" in row.keys() else "[]", [])
+        pack_json = _loads_json_safe(row["pack_json"] if "pack_json" in row.keys() else "{}", {})
+        if _json_deep_contains(source_refs, source_id) or _json_deep_contains(pack_json, source_id):
+            linked.append(row)
+    return linked
+
 def delete_source(source_id: str, delete_file: bool = True, cleanup_refs: bool = True) -> Dict[str, Any]:
     source = get_source(source_id)
     if not source:
@@ -991,6 +1037,7 @@ def delete_source(source_id: str, delete_file: bool = True, cleanup_refs: bool =
             project = db.execute("SELECT id FROM calculator_blueprints WHERE source_id=?", (source_id,)).fetchone()
         if project:
             return delete_calculator_blueprint(project["id"])
+
     deleted_file = False
     file_error = ""
     if delete_file:
@@ -1005,12 +1052,45 @@ def delete_source(source_id: str, delete_file: bool = True, cleanup_refs: bool =
                 file_error = str(exc)
 
     with conn() as db:
-        chunk_count = db.execute("SELECT COUNT(*) AS n FROM source_chunks WHERE source_id=?", (source_id,)).fetchone()["n"]
-        db.execute("DELETE FROM source_chunks WHERE source_id=?", (source_id,))
-        db.execute("DELETE FROM note_versions WHERE source_id=?", (source_id,))
-        db.execute("DELETE FROM transcript_revisions WHERE corrected_source_id=?", (source_id,))
+        # Collect cascades before deleting the seed source.
+        note_series_ids, note_source_ids = _collect_note_series_for_source(db, source_id)
+        linked_problem_rows = _collect_problem_packs_for_source(db, source_id)
+        linked_pack_ids = sorted({row["id"] for row in linked_problem_rows if row["id"]})
+        linked_pack_source_ids = sorted({row["source_id"] for row in linked_problem_rows if row["source_id"]})
+
+        # If deleting an original transcript, delete revision records and the generated corrected transcript sources too.
+        revision_rows = db.execute(
+            "SELECT corrected_source_id FROM transcript_revisions WHERE original_transcript_source_id=? OR corrected_source_id=?",
+            (source_id, source_id),
+        ).fetchall()
+        transcript_generated_source_ids = sorted({row["corrected_source_id"] for row in revision_rows if row["corrected_source_id"] and row["corrected_source_id"] != source_id})
+
+        cascade_source_ids = {source_id, *note_source_ids, *linked_pack_source_ids, *transcript_generated_source_ids}
+        chunk_count = 0
+        for sid in sorted(cascade_source_ids):
+            row = db.execute("SELECT COUNT(*) AS n FROM source_chunks WHERE source_id=?", (sid,)).fetchone()
+            chunk_count += int(row["n"] if row else 0)
+            db.execute("DELETE FROM source_chunks WHERE source_id=?", (sid,))
+
+        if note_series_ids:
+            for series_id in note_series_ids:
+                db.execute("DELETE FROM note_versions WHERE series_id=?", (series_id,))
+        else:
+            db.execute("DELETE FROM note_versions WHERE source_id=?", (source_id,))
+
+        db.execute("DELETE FROM transcript_revisions WHERE corrected_source_id=? OR original_transcript_source_id=?", (source_id, source_id))
+        for sid in transcript_generated_source_ids:
+            db.execute("DELETE FROM transcript_revisions WHERE corrected_source_id=? OR original_transcript_source_id=?", (sid, sid))
+
+        for pack_id in linked_pack_ids:
+            db.execute("DELETE FROM problem_pack_versions WHERE pack_id=?", (pack_id,))
+            db.execute("DELETE FROM problem_packs WHERE id=?", (pack_id,))
         db.execute("DELETE FROM problem_packs WHERE source_id=?", (source_id,))
-        db.execute("DELETE FROM sources WHERE id=?", (source_id,))
+        db.execute("DELETE FROM problem_pack_versions WHERE source_id=?", (source_id,))
+
+        for sid in sorted(cascade_source_ids):
+            db.execute("DELETE FROM sources WHERE id=?", (sid,))
+
     cleanup_report = cleanup_deleted_source_refs(source_id) if cleanup_refs else {}
     return {
         "ok": True,
@@ -1019,6 +1099,10 @@ def delete_source(source_id: str, delete_file: bool = True, cleanup_refs: bool =
         "deleted_chunks": int(chunk_count or 0),
         "deleted_file": deleted_file,
         "file_error": file_error,
+        "cascade_deleted_sources": sorted(s for s in cascade_source_ids if s != source_id),
+        "cascade_deleted_note_series": note_series_ids,
+        "cascade_deleted_problem_packs": linked_pack_ids,
+        "cascade_deleted_transcript_sources": transcript_generated_source_ids,
         **cleanup_report,
     }
 

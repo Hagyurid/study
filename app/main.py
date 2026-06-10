@@ -1458,7 +1458,7 @@ def delete_source_form_endpoint(source_id: str, action_key: str = Form(default="
     result = delete_source(source_id)
     if not result:
         raise HTTPException(status_code=404, detail="Source not found")
-    return _page("삭제 완료", f"<section class='top'><div><h1>삭제 완료</h1><p>자료와 추출 chunk를 삭제했습니다.</p></div><div class='nav'><a class='btn' href='/sources/manage?action_key={escape(action_key)}'>파일 관리로 돌아가기</a></div></section><section class='card'><p><b>제목:</b> {escape(result.get('deleted_title',''))}</p><p><b>source_id:</b> <code>{escape(result.get('deleted_source_id',''))}</code></p><p><b>삭제 chunks:</b> {result.get('deleted_chunks')}</p><p><b>파일 삭제:</b> {result.get('deleted_file')}</p></section>")
+    return _page("삭제 완료", f"<section class='top'><div><h1>삭제 완료</h1><p>자료, 추출 chunk, 연결된 생성 기록을 함께 삭제했습니다.</p></div><div class='nav'><a class='btn' href='/sources/manage?action_key={escape(action_key)}'>파일 관리로 돌아가기</a></div></section><section class='card'><p><b>제목:</b> {escape(result.get('deleted_title',''))}</p><p><b>source_id:</b> <code>{escape(result.get('deleted_source_id',''))}</code></p><p><b>삭제 chunks:</b> {result.get('deleted_chunks')}</p><p><b>파일 삭제:</b> {result.get('deleted_file')}</p><p><b>연결 삭제:</b> 문제팩 {len(result.get('cascade_deleted_problem_packs', []))}개 · 정리본 series {len(result.get('cascade_deleted_note_series', []))}개 · 관련 source {len(result.get('cascade_deleted_sources', []))}개</p></section>")
 
 
 @app.post("/sources/delete-batch")
@@ -1488,17 +1488,18 @@ def delete_sources_batch_endpoint(action_key: str = Form(default=""), subject: s
         f"<td><code>{escape(item.get('deleted_source_id',''))}</code></td>"
         f"<td>{item.get('deleted_chunks', 0)}</td>"
         f"<td>{escape(str(item.get('deleted_file', '')))}</td>"
+        f"<td>문제팩 {len(item.get('cascade_deleted_problem_packs', []))} · 정리본 {len(item.get('cascade_deleted_note_series', []))} · source {len(item.get('cascade_deleted_sources', []))}</td>"
         "</tr>"
         for item in deleted
     )
     if not rows:
-        rows = "<tr><td colspan='4' class='muted'>삭제된 자료가 없습니다.</td></tr>"
+        rows = "<tr><td colspan='5' class='muted'>삭제된 자료가 없습니다.</td></tr>"
     missing_html = ""
     if missing:
         missing_html = "<p class='hint'>찾을 수 없는 source_id: " + ", ".join(f"<code>{escape(x)}</code>" for x in missing) + "</p>"
     return _page(
         "선택 삭제 완료",
-        f"<section class='top'><div><h1>선택 삭제 완료</h1><p>{len(deleted)}개 자료를 삭제했습니다.</p>{missing_html}</div><div class='nav'><a class='btn' href='/sources/manage?action_key={escape(action_key)}&subject={escape(subject)}&source_type={escape(source_type)}'>파일 관리로 돌아가기</a><a class='btn secondary' href='/'>홈</a></div></section><section class='card'><table><thead><tr><th>제목</th><th>source_id</th><th>삭제 chunks</th><th>파일 삭제</th></tr></thead><tbody>{rows}</tbody></table></section>",
+        f"<section class='top'><div><h1>선택 삭제 완료</h1><p>{len(deleted)}개 자료를 삭제했습니다.</p>{missing_html}</div><div class='nav'><a class='btn' href='/sources/manage?action_key={escape(action_key)}&subject={escape(subject)}&source_type={escape(source_type)}'>파일 관리로 돌아가기</a><a class='btn secondary' href='/'>홈</a></div></section><section class='card'><table><thead><tr><th>제목</th><th>source_id</th><th>삭제 chunks</th><th>파일 삭제</th><th>연결 삭제</th></tr></thead><tbody>{rows}</tbody></table></section>",
     )
 
 
