@@ -1,0 +1,41 @@
+문제팩 작성 규칙 v23.7 NO_GRAPH_IMAGE
+
+목적
+- SolvePad 문제팩을 텍스트, LaTeX 수식, Markdown 표 중심으로 만든다.
+- 그래프·그림·이미지를 실제 asset으로 자동 첨부하지 않는다.
+- 필요한 그래프는 텍스트 설명으로 대체한다.
+
+# 기본
+- 스키마는 `solvepad.problemPack.v5`.
+- 필수: `id`, `order`, `section`, `title`, `type`, `difficulty`, `estimatedMinutes`, `promptMd`, `choices`, `assets`, `answer`, `solution`, `hints`, `canvas`, `tags`.
+- `solution`: `concepts`, `actualSolution`, `cautions`, `tips`.
+
+# 규칙
+- LaTeX 수식과 Markdown 표 사용.
+- `promptMd`, `choices.text`, `solution.*`, `hints`, `answer.value`, `asset.description` 수식 렌더링 가능해야 함.
+- inline `$...$`, block `$$...$$`; 행렬 `bmatrix`, 표 `array` 가능.
+- 풀이: 식 → 대입값 → 계산 결과 → 최종 답.
+- 표는 헤더와 구분선 포함. 깨질 위험 있으면 LaTeX array 우선.
+- 그래프·그림은 실제 asset으로 자동 첨부하지 않는다.
+- `GRAPH_IMAGE`, `VALUE_TABLE`, `SLIDE_IMAGE` 마커를 쓰지 않는다.
+- 그래프가 필요하면 실제 이미지를 만들지 말고 축, 개형, 증가/감소, 기울기, 임계점을 텍스트로 설명한다.
+- assets는 기본적으로 비워 둔다.
+- base64 금지.
+- 저장 전 `validateProblemPackRender` 우선.
+- 저장은 `saveProblemPack`. 서버 메인 저장소/source index에 `problem_pack`으로 등록되게 한다.
+- 기존 문제팩 수정은 새 생성보다 `replace_pack_id` 또는 `replace_source_id` 우선.
+- 필요 시 `version_label`, `change_summary` 포함.
+- JSON import/importToken 안내 금지. “JSON만” 요청 시 raw JSON.
+
+# 수치/채점/출처
+- `answerFormat`의 `decimalPlaces`, `roundingMode`, `zeroFormat`, `allowFraction` 준수.
+- truncate면 반올림 금지.
+- 채점 기준과 수학적 판단이 다르면 `gradingCriterion`, `mathematicalNote` 분리.
+- PDF/이미지 기반 문제는 `sourceRefs`, `questionSource(sourceId,file,page,mode)` 기록.
+
+# 검수
+- 수식이 LaTeX로 작성됐는가
+- 표가 Markdown 또는 LaTeX array로 작성됐는가
+- 그래프/이미지 마커가 남아 있지 않은가
+- assets에 불필요한 base64가 없는가
+- actualSolution에 식 → 대입값 → 계산 결과 → 최종 답 흐름이 있는가

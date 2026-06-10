@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Study Note Studio</title>
-  <link rel="stylesheet" href="styles.css?v=23_7" />
+  <link rel="stylesheet" href="styles.css?v=22_26" />
   <script>
     window.MathJax = { tex: { inlineMath: [['$', '$'], ['\\(', '\\)']], displayMath: [['$$', '$$'], ['\\[', '\\]']], processEscapes: true }, svg: { fontCache: 'global' } };
   </script>
@@ -57,15 +57,13 @@
       </div>
     </section>
   </main>
-  <script src="app.js?v=23_7"></script>
+  <script src="app.js?v=23_6"></script>
 
   <div class="study-right-rail" aria-label="빠른 편집 도구">
     <button type="button" onclick="highlightSelection()">형광펜</button>
     <button type="button" class="light" onclick="clearHighlight()">형광펜 지우기</button>
     <label class="rail-filebtn">이미지<input id="imageInput" type="file" accept="image/*" onchange="insertImage(event)" /></label>
     <button type="button" class="light" onclick="insertSlideImage()">슬라이드</button>
-    <button type="button" class="light" onclick="insertValueTable()">수치표</button>
-    <button type="button" class="light" onclick="insertGraphImage()">그래프</button>
     <label class="rail-select">이미지 크기<select id="imageScale" onchange="setDefaultImageScale(this.value)">
       <option value="10">10%</option><option value="20">20%</option><option value="30">30%</option><option value="40">40%</option><option value="50">50%</option><option value="60">60%</option><option value="70">70%</option><option value="80">80%</option><option value="90">90%</option><option value="100" selected>100%</option>
     </select></label>
