@@ -134,6 +134,80 @@ function slideMarkerMarkdown(sourceId, page, caption, zoom, size) {
   const scale = normalizeImageScale(size || 100);
   return `[[SLIDE_IMAGE source_id="${src}" page="${page}" caption="${cap}"${z} size="${scale}"]]`;
 }
+
+function parseMarkerAttrs(raw) {
+  const attrs = {};
+  const re = /([A-Za-z_][\w-]*)=(?:"([^"]*)"|'([^']*)'|([^\s]+))/g;
+  let hit;
+  while ((hit = re.exec(String(raw || ''))) !== null) attrs[hit[1]] = hit[2] ?? hit[3] ?? hit[4] ?? '';
+  return attrs;
+}
+function parseValueTableMarker(line) {
+  const m = String(line || '').trim().match(/^\[\[VALUE_TABLE\s+([\s\S]*?)\]\]$/);
+  if (!m) return null;
+  const attrs = parseMarkerAttrs(m[1]);
+  const columns = String(attrs.columns || 'x,y').split(/[;,]/).map(v => v.trim()).filter(Boolean);
+  const rows = String(attrs.rows || attrs.data || '').split(/\s*\|\s*/).filter(Boolean).map(row => row.split(/\s*,\s*/).map(v => v.trim()));
+  return { title: attrs.title || attrs.caption || '수치값 표', caption: attrs.caption || attrs.title || '', xLabel: attrs.x_label || attrs.xLabel || columns[0] || 'x', yLabel: attrs.y_label || attrs.yLabel || columns[1] || 'y', columns, rows };
+}
+function valueTableMarkerMarkdown(info) {
+  const cols = (info.columns || ['x', 'y']).map(slideMarkerAttr).join(',');
+  const rows = (info.rows || []).map(row => row.map(slideMarkerAttr).join(',')).join('|');
+  return `[[VALUE_TABLE title="${slideMarkerAttr(info.title || '수치값 표')}" columns="${cols}" rows="${rows}" caption="${slideMarkerAttr(info.caption || info.title || '')}"]]`;
+}
+function valueTableFigureHtml(info) {
+  const columns = info.columns && info.columns.length ? info.columns : ['x', 'y'];
+  const colCount = Math.max(columns.length, ...(info.rows || [[]]).map(r => r.length), 1);
+  const pad = (row) => Array.from({ length: colCount }, (_, idx) => row[idx] || '');
+  const head = `<thead><tr>${pad(columns).map(cell => `<th>${inlineMarkdownToHtml(cell)}</th>`).join('')}</tr></thead>`;
+  const body = `<tbody>${(info.rows || []).map(row => `<tr>${pad(row).map(cell => `<td>${inlineMarkdownToHtml(cell)}</td>`).join('')}</tr>`).join('')}</tbody>`;
+  return `<figure class="generated-figure value-table-card" data-value-table-title="${attr(info.title)}" data-value-table-caption="${attr(info.caption || '')}" data-value-table-columns="${attr(columns.join(','))}" data-value-table-rows="${attr((info.rows || []).map(r => r.join(',')).join('|'))}"><button type="button" class="generated-delete" contenteditable="false" aria-label="표 삭제">삭제</button><figcaption contenteditable="true"><b>${esc(info.title || '수치값 표')}</b>${info.caption && info.caption !== info.title ? ' · ' + esc(info.caption) : ''}</figcaption><div class="table-wrap"><table>${head}${body}</table></div></figure>`;
+}
+function parsePoints(raw) {
+  return String(raw || '').split(/\s*\|\s*/).filter(Boolean).map(item => item.split(/\s*,\s*/).map(Number)).filter(pair => pair.length >= 2 && Number.isFinite(pair[0]) && Number.isFinite(pair[1]));
+}
+function parseGraphMarker(line) {
+  const m = String(line || '').trim().match(/^\[\[GRAPH_IMAGE\s+([\s\S]*?)\]\]$/);
+  if (!m) return null;
+  const attrs = parseMarkerAttrs(m[1]);
+  return { title: attrs.title || attrs.caption || '그래프', caption: attrs.caption || attrs.title || '', xLabel: attrs.x_label || attrs.xLabel || 'x', yLabel: attrs.y_label || attrs.yLabel || 'y', mode: String(attrs.mode || 'line').toLowerCase(), formula: attrs.formula || '', points: parsePoints(attrs.points || attrs.data || '') };
+}
+function graphMarkerMarkdown(info) {
+  const points = (info.points || []).map(p => `${p[0]},${p[1]}`).join('|');
+  return `[[GRAPH_IMAGE title="${slideMarkerAttr(info.title || '그래프')}" x_label="${slideMarkerAttr(info.xLabel || 'x')}" y_label="${slideMarkerAttr(info.yLabel || 'y')}" mode="${slideMarkerAttr(info.mode || 'line')}" points="${slideMarkerAttr(points)}" formula="${slideMarkerAttr(info.formula || '')}" caption="${slideMarkerAttr(info.caption || info.title || '')}"]]`;
+}
+function graphSvgDataUrl(info) {
+  const pts = info.points || [];
+  const width = 680, height = 380, ml = 70, mr = 24, mt = 36, mb = 62;
+  const pw = width - ml - mr, ph = height - mt - mb;
+  if (!pts.length) {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="100%" height="100%" fill="white"/><text x="${width/2}" y="${height/2}" text-anchor="middle" font-size="18" fill="#667085">그래프 데이터 확인 필요</text></svg>`;
+    return 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg)));
+  }
+  let xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+  let xmin = Math.min(...xs), xmax = Math.max(...xs), ymin = Math.min(...ys), ymax = Math.max(...ys);
+  if (xmin === xmax) { xmin -= 1; xmax += 1; }
+  if (ymin === ymax) { ymin -= 1; ymax += 1; }
+  const xpad = (xmax - xmin) * 0.06, ypad = (ymax - ymin) * 0.10;
+  xmin -= xpad; xmax += xpad; ymin -= ypad; ymax += ypad;
+  const sx = (x) => ml + (x - xmin) / (xmax - xmin) * pw;
+  const sy = (y) => mt + ph - (y - ymin) / (ymax - ymin) * ph;
+  const coords = pts.map(p => `${sx(p[0]).toFixed(2)},${sy(p[1]).toFixed(2)}`).join(' ');
+  const grid = Array.from({ length: 6 }, (_, i) => {
+    const gx = ml + pw * i / 5, gy = mt + ph * i / 5;
+    return `<line x1="${gx}" y1="${mt}" x2="${gx}" y2="${mt+ph}" stroke="#e5e7eb"/><line x1="${ml}" y1="${gy}" x2="${ml+pw}" y2="${gy}" stroke="#e5e7eb"/>`;
+  }).join('');
+  const line = info.mode !== 'scatter' && pts.length > 1 ? `<polyline points="${coords}" fill="none" stroke="#4f46e5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>` : '';
+  const dots = pts.map(p => `<circle cx="${sx(p[0]).toFixed(2)}" cy="${sy(p[1]).toFixed(2)}" r="4" fill="#4f46e5"/>`).join('');
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="100%" height="100%" fill="white"/><text x="${ml}" y="24" font-size="18" font-weight="700" fill="#111827">${esc(info.title || '그래프')}</text>${grid}<line x1="${ml}" y1="${mt+ph}" x2="${ml+pw}" y2="${mt+ph}" stroke="#111827" stroke-width="1.5"/><line x1="${ml}" y1="${mt}" x2="${ml}" y2="${mt+ph}" stroke="#111827" stroke-width="1.5"/>${line}${dots}<text x="${ml+pw/2}" y="${height-18}" font-size="13" text-anchor="middle" fill="#334155">${esc(info.xLabel || 'x')}</text><text x="18" y="${mt+ph/2}" font-size="13" text-anchor="middle" fill="#334155" transform="rotate(-90 18 ${mt+ph/2})">${esc(info.yLabel || 'y')}</text><text x="${ml}" y="${height-40}" font-size="12" fill="#64748b">${esc(info.formula || '')}</text></svg>`;
+  return 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg)));
+}
+function graphFigureHtml(info) {
+  const dataUrl = graphSvgDataUrl(info);
+  const points = (info.points || []).map(p => `${p[0]},${p[1]}`).join('|');
+  return `<figure class="image-card graph-card generated-figure" data-graph-title="${attr(info.title)}" data-graph-caption="${attr(info.caption || '')}" data-graph-x-label="${attr(info.xLabel)}" data-graph-y-label="${attr(info.yLabel)}" data-graph-mode="${attr(info.mode || 'line')}" data-graph-formula="${attr(info.formula || '')}" data-graph-points="${attr(points)}" data-image-scale="100" style="width:100%"><button type="button" class="generated-delete image-delete" contenteditable="false" aria-label="그래프 삭제">삭제</button><img alt="${attr(info.caption || info.title || '그래프')}" src="${attr(dataUrl)}" contenteditable="false"><figcaption contenteditable="true">${esc(info.caption || info.title || '그래프')}</figcaption></figure>`;
+}
+function parseGeneratedMarker(line) { return parseValueTableMarker(line) || parseGraphMarker(line); }
 function slideFigureHtml(info) {
   const safeSource = attr(info.sourceId);
   const safePage = attr(info.page || 1);
@@ -320,6 +394,16 @@ function markdownToHtml(md) {
       blocks.push(slideFigureHtml(slideMarker));
       i += 1; continue;
     }
+    const valueTableMarker = parseValueTableMarker(line);
+    if (valueTableMarker) {
+      blocks.push(valueTableFigureHtml(valueTableMarker));
+      i += 1; continue;
+    }
+    const graphMarker = parseGraphMarker(line);
+    if (graphMarker) {
+      blocks.push(graphFigureHtml(graphMarker));
+      i += 1; continue;
+    }
     const image = line.match(/^!\[([^\]]*)\]\((.+)\)(?:\{(?:width|size|scale)=(\d+)%?\})?$/);
     if (image) {
       blocks.push(imageFigureHtml(image[1] || '이미지', image[2], image[3] || 60));
@@ -340,7 +424,7 @@ function markdownToHtml(md) {
       blocks.push(`<ul>${items.join('')}</ul>`); continue;
     }
     const para = [line]; i += 1;
-    while (i < lines.length && lines[i].trim() && !/^(#{1,6})\s+/.test(lines[i]) && !/^[-*]\s+/.test(lines[i]) && !lines[i].startsWith('```') && !/^!\[/.test(lines[i]) && !parseSlideMarker(lines[i])) { para.push(lines[i]); i += 1; }
+    while (i < lines.length && lines[i].trim() && !/^(#{1,6})\s+/.test(lines[i]) && !/^[-*]\s+/.test(lines[i]) && !lines[i].startsWith('```') && !/^!\[/.test(lines[i]) && !parseSlideMarker(lines[i]) && !parseGeneratedMarker(lines[i])) { para.push(lines[i]); i += 1; }
     blocks.push(`<p>${inlineMarkdownToHtml(para.join('\n')).replace(/\n/g, '<br>')}</p>`);
   }
   return blocks.join('\n') || '<p class="placeholder">왼쪽 목록에서 정리본을 열거나 새 정리본을 만드세요.</p>';
@@ -393,6 +477,15 @@ function blockToMarkdown(el) {
   if (tag === 'pre') return '```\n' + (el.textContent || '') + '\n```';
   if (tag === 'figure') {
     const cap = el.querySelector('figcaption')?.textContent?.trim() || el.dataset.slideCaption || '이미지';
+    if (el.classList.contains('value-table-card')) {
+      const table = el.querySelector('table');
+      const columns = table ? Array.from(table.querySelectorAll('thead th')).map(th => inlineToMarkdown(th).replace(/,/g, ' ').trim()) : String(el.dataset.valueTableColumns || '').split(',');
+      const rows = table ? Array.from(table.querySelectorAll('tbody tr')).map(tr => Array.from(tr.children).map(td => inlineToMarkdown(td).replace(/,/g, ' ').trim())) : String(el.dataset.valueTableRows || '').split('|').filter(Boolean).map(r => r.split(','));
+      return valueTableMarkerMarkdown({ title: el.dataset.valueTableTitle || cap || '수치값 표', caption: cap || el.dataset.valueTableCaption || '', columns, rows });
+    }
+    if (el.classList.contains('graph-card')) {
+      return graphMarkerMarkdown({ title: el.dataset.graphTitle || cap || '그래프', caption: cap || el.dataset.graphCaption || '', xLabel: el.dataset.graphXLabel || 'x', yLabel: el.dataset.graphYLabel || 'y', mode: el.dataset.graphMode || 'line', formula: el.dataset.graphFormula || '', points: parsePoints(el.dataset.graphPoints || '') });
+    }
     if (el.classList.contains('slide-card')) {
       const sourceId = el.dataset.slideSourceId || '';
       const page = Math.max(1, parseInt(el.dataset.slidePage || '1', 10) || 1);
@@ -571,6 +664,33 @@ async function insertSlideImage() {
   }
 }
 
+
+function insertValueTable() {
+  const title = prompt('표 제목', '수치값 표') || '수치값 표';
+  const columnsRaw = prompt('열 이름을 쉼표로 입력', 'x,y') || 'x,y';
+  const rowsRaw = prompt('행 데이터를 | 로 구분해서 입력\n예: 0,0|1,1|2,4', '0,0|1,1|2,4') || '';
+  const info = parseValueTableMarker(`[[VALUE_TABLE title="${slideMarkerAttr(title)}" columns="${slideMarkerAttr(columnsRaw)}" rows="${slideMarkerAttr(rowsRaw)}" caption="${slideMarkerAttr(title)}"]]`);
+  if (!info) return;
+  const wrap = document.createElement('div');
+  wrap.innerHTML = valueTableFigureHtml(info);
+  insertNodeAtSelection(wrap.firstElementChild);
+  syncMarkdownFromDocument();
+  status('수치표 삽입됨');
+}
+function insertGraphImage() {
+  const title = prompt('그래프 제목', '그래프') || '그래프';
+  const xLabel = prompt('x축 이름', 'x') || 'x';
+  const yLabel = prompt('y축 이름', 'y') || 'y';
+  const points = prompt('점 데이터를 | 로 구분해서 입력\n예: 0,0|1,1|2,4', '0,0|1,1|2,4') || '';
+  const formula = prompt('표시할 식 또는 설명', '') || '';
+  const info = parseGraphMarker(`[[GRAPH_IMAGE title="${slideMarkerAttr(title)}" x_label="${slideMarkerAttr(xLabel)}" y_label="${slideMarkerAttr(yLabel)}" mode="line" points="${slideMarkerAttr(points)}" formula="${slideMarkerAttr(formula)}" caption="${slideMarkerAttr(title)}"]]`);
+  if (!info) return;
+  const wrap = document.createElement('div');
+  wrap.innerHTML = graphFigureHtml(info);
+  insertNodeAtSelection(wrap.firstElementChild);
+  syncMarkdownFromDocument();
+  status('그래프 삽입됨');
+}
 async function toggleSource() { const dialog = $('sourceDialog'); if (dialog.open) { await renderMarkdown($('markdown').value); dialog.close(); } else { syncMarkdownFromDocument(); dialog.showModal(); } }
 function downloadMd() { if (!currentSourceId) return alert('먼저 저장하세요.'); location.href = '/study/notes/' + encodeURIComponent(currentSourceId) + '/download.md'; }
 function downloadDocx() { if (!currentSourceId) return alert('먼저 저장하세요.'); window.open('/study/notes/' + encodeURIComponent(currentSourceId) + '/download.docx', '_blank'); }
@@ -614,12 +734,12 @@ $('doc').addEventListener('click', (ev) => {
     status('이미지 크기 ' + normalizeImageScale(value) + '%');
     return;
   }
-  const btn = ev.target.closest?.('.image-delete');
+  const btn = ev.target.closest?.('.image-delete, .generated-delete');
   if (!btn || !$('doc').contains(btn)) return;
   ev.preventDefault();
   ev.stopPropagation();
-  const targetFigure = btn.closest('figure.image-card');
-  if (targetFigure && confirm('이 이미지를 삭제할까요?')) {
+  const targetFigure = btn.closest('figure');
+  if (targetFigure && confirm('이 항목을 삭제할까요?')) {
     if (activeImageFigure === targetFigure) activeImageFigure = null;
     targetFigure.remove();
     syncMarkdownFromDocument();

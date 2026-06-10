@@ -10,6 +10,7 @@ import zipfile
 import base64
 import re
 import json
+import math
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -296,6 +297,8 @@ def _code_block_html(code: str, lang: str = "") -> str:
 
 
 _SLIDE_MARKER_RE = re.compile(r'^\s*\[\[SLIDE_IMAGE\s+([\s\S]*?)\]\]\s*$')
+_VALUE_TABLE_MARKER_RE = re.compile(r'^\s*\[\[VALUE_TABLE\s+([\s\S]*?)\]\]\s*$')
+_GRAPH_MARKER_RE = re.compile(r'^\s*\[\[GRAPH_IMAGE\s+([\s\S]*?)\]\]\s*$')
 _SLIDE_ATTR_RE = re.compile(r'([A-Za-z_][\w-]*)=(?:"([^"]*)"|\'([^\']*)\'|([^\s]+))')
 
 
@@ -521,6 +524,154 @@ def _parse_slide_marker(line: str) -> Optional[dict]:
     size = _normalize_image_scale(attrs.get("size") or attrs.get("scale") or attrs.get("width") or 100)
     return {"source_id": source_id, "page": page, "zoom": zoom, "caption": caption, "size": size}
 
+
+def _parse_value_table_marker(line: str) -> Optional[Dict[str, Any]]:
+    match = _VALUE_TABLE_MARKER_RE.match(line or "")
+    if not match:
+        return None
+    attrs = _parse_attrs(match.group(1))
+    cols = [c.strip() for c in re.split(r"[,;]", attrs.get("columns") or "x,y") if c.strip()]
+    if not cols:
+        cols = ["x", "y"]
+    rows: List[List[str]] = []
+    raw_rows = attrs.get("rows") or attrs.get("data") or ""
+    for raw_row in re.split(r"\s*\|\s*", raw_rows.strip()):
+        if not raw_row:
+            continue
+        rows.append([cell.strip() for cell in re.split(r"\s*,\s*", raw_row)])
+    return {
+        "title": attrs.get("title") or attrs.get("caption") or "수치값 표",
+        "caption": attrs.get("caption") or attrs.get("title") or "",
+        "columns": cols,
+        "rows": rows,
+        "x_label": attrs.get("x_label") or attrs.get("xLabel") or cols[0],
+        "y_label": attrs.get("y_label") or attrs.get("yLabel") or (cols[1] if len(cols) > 1 else "value"),
+    }
+
+
+def _value_table_marker_html(line: str) -> Optional[str]:
+    marker = _parse_value_table_marker(line)
+    if not marker:
+        return None
+    columns = marker["columns"]
+    rows = marker["rows"]
+    col_count = max([len(columns)] + [len(r) for r in rows] + [1])
+    def pad(row: List[str]) -> List[str]:
+        return row + [""] * (col_count - len(row))
+    head = "".join(f"<th>{_inline_markdown_html(cell)}</th>" for cell in pad(columns))
+    body = "".join("<tr>" + "".join(f"<td>{_inline_markdown_html(cell)}</td>" for cell in pad(row)) + "</tr>" for row in rows)
+    caption = marker.get("caption") or marker.get("title") or "수치값 표"
+    title = marker.get("title") or "수치값 표"
+    return (
+        "<figure class='value-table-card generated-figure'>"
+        f"<figcaption><b>{escape(title)}</b>{(' · ' + escape(caption)) if caption and caption != title else ''}</figcaption>"
+        "<div class='table-wrap'><table><thead><tr>" + head + "</tr></thead><tbody>" + body + "</tbody></table></div>"
+        "</figure>"
+    )
+
+
+def _parse_points(raw: str) -> List[Tuple[float, float]]:
+    points: List[Tuple[float, float]] = []
+    for item in re.split(r"\s*\|\s*", str(raw or "").strip()):
+        if not item:
+            continue
+        parts = [p.strip() for p in item.split(",")]
+        if len(parts) < 2:
+            continue
+        try:
+            points.append((float(parts[0]), float(parts[1])))
+        except Exception:
+            continue
+    return points
+
+
+def _parse_graph_marker(line: str) -> Optional[Dict[str, Any]]:
+    match = _GRAPH_MARKER_RE.match(line or "")
+    if not match:
+        return None
+    attrs = _parse_attrs(match.group(1))
+    points = _parse_points(attrs.get("points") or attrs.get("data") or "")
+    return {
+        "title": attrs.get("title") or attrs.get("caption") or "그래프",
+        "caption": attrs.get("caption") or attrs.get("title") or "",
+        "x_label": attrs.get("x_label") or attrs.get("xLabel") or "x",
+        "y_label": attrs.get("y_label") or attrs.get("yLabel") or "y",
+        "mode": (attrs.get("mode") or "line").lower(),
+        "formula": attrs.get("formula") or "",
+        "points": points,
+    }
+
+
+def _graph_svg_data_url(marker: Dict[str, Any]) -> str:
+    points = marker.get("points") or []
+    width, height = 680, 380
+    ml, mr, mt, mb = 70, 24, 36, 62
+    plot_w, plot_h = width - ml - mr, height - mt - mb
+    if not points:
+        svg = f"""<svg xmlns='http://www.w3.org/2000/svg' width='{width}' height='{height}' viewBox='0 0 {width} {height}'><rect width='100%' height='100%' fill='white'/><text x='{width/2}' y='{height/2}' text-anchor='middle' font-size='18' fill='#667085'>그래프 데이터 확인 필요</text></svg>"""
+        return "data:image/svg+xml;base64," + base64.b64encode(svg.encode("utf-8")).decode("ascii")
+    xs, ys = [p[0] for p in points], [p[1] for p in points]
+    xmin, xmax = min(xs), max(xs)
+    ymin, ymax = min(ys), max(ys)
+    if math.isclose(xmin, xmax):
+        xmin -= 1; xmax += 1
+    if math.isclose(ymin, ymax):
+        ymin -= 1; ymax += 1
+    xpad = (xmax - xmin) * 0.06
+    ypad = (ymax - ymin) * 0.10
+    xmin -= xpad; xmax += xpad; ymin -= ypad; ymax += ypad
+    def sx(x: float) -> float:
+        return ml + (x - xmin) / (xmax - xmin) * plot_w
+    def sy(y: float) -> float:
+        return mt + plot_h - (y - ymin) / (ymax - ymin) * plot_h
+    coords = " ".join(f"{sx(x):.2f},{sy(y):.2f}" for x, y in points)
+    grid = []
+    for i in range(6):
+        gx = ml + plot_w * i / 5
+        gy = mt + plot_h * i / 5
+        grid.append(f"<line x1='{gx:.1f}' y1='{mt}' x2='{gx:.1f}' y2='{mt+plot_h}' stroke='#e5e7eb' stroke-width='1'/>")
+        grid.append(f"<line x1='{ml}' y1='{gy:.1f}' x2='{ml+plot_w}' y2='{gy:.1f}' stroke='#e5e7eb' stroke-width='1'/>")
+    dots = "".join(f"<circle cx='{sx(x):.2f}' cy='{sy(y):.2f}' r='4' fill='#4f46e5'/>" for x, y in points)
+    line = f"<polyline points='{coords}' fill='none' stroke='#4f46e5' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/>" if marker.get("mode") != "scatter" and len(points) > 1 else ""
+    title = escape(marker.get("title") or "그래프")
+    x_label = escape(marker.get("x_label") or "x")
+    y_label = escape(marker.get("y_label") or "y")
+    formula = escape(marker.get("formula") or "")
+    svg = f"""<svg xmlns='http://www.w3.org/2000/svg' width='{width}' height='{height}' viewBox='0 0 {width} {height}'>
+<rect width='100%' height='100%' fill='white'/>
+<text x='{ml}' y='24' font-family='Arial, sans-serif' font-size='18' font-weight='700' fill='#111827'>{title}</text>
+{''.join(grid)}
+<line x1='{ml}' y1='{mt+plot_h}' x2='{ml+plot_w}' y2='{mt+plot_h}' stroke='#111827' stroke-width='1.5'/>
+<line x1='{ml}' y1='{mt}' x2='{ml}' y2='{mt+plot_h}' stroke='#111827' stroke-width='1.5'/>
+{line}{dots}
+<text x='{ml+plot_w/2}' y='{height-18}' font-family='Arial, sans-serif' font-size='13' text-anchor='middle' fill='#334155'>{x_label}</text>
+<text x='18' y='{mt+plot_h/2}' font-family='Arial, sans-serif' font-size='13' text-anchor='middle' fill='#334155' transform='rotate(-90 18 {mt+plot_h/2})'>{y_label}</text>
+<text x='{ml}' y='{height-40}' font-family='Arial, sans-serif' font-size='12' fill='#64748b'>{formula}</text>
+</svg>"""
+    return "data:image/svg+xml;base64," + base64.b64encode(svg.encode("utf-8")).decode("ascii")
+
+
+def _graph_marker_html(line: str) -> Optional[str]:
+    marker = _parse_graph_marker(line)
+    if not marker:
+        return None
+    caption = marker.get("caption") or marker.get("title") or "그래프"
+    data_url = _graph_svg_data_url(marker)
+    return (
+        "<figure class='image-card graph-card generated-figure' data-image-scale='100' style='width:100%;'>"
+        f"<img alt='{escape(caption)}' src='{escape(data_url)}'/>"
+        f"<figcaption>{escape(caption)}</figcaption>"
+        "</figure>"
+    )
+
+
+def _generated_marker_html(line: str) -> Optional[str]:
+    return _value_table_marker_html(line) or _graph_marker_html(line)
+
+
+def _is_special_note_marker(line: str) -> bool:
+    return bool(_parse_slide_marker(line) or _parse_value_table_marker(line) or _parse_graph_marker(line))
+
 @lru_cache(maxsize=24)
 def _render_pdf_page_png_base64(stored_path: str, mtime_ns: int, page: int, zoom: float) -> Dict[str, Any]:
     try:
@@ -627,6 +778,11 @@ def _simple_markdown_html(markdown: str) -> str:
             blocks.append(slide_html)
             i += 1
             continue
+        generated_html = _generated_marker_html(line)
+        if generated_html:
+            blocks.append(generated_html)
+            i += 1
+            continue
         img = re.match(r"^!\[([^\]]*)\]\((.+)\)(?:\{(?:width|size|scale)=(\d+)%?\})?$", line.strip())
         if img:
             scale_attrs = _image_figure_attrs(img.group(3) or 100)
@@ -656,7 +812,7 @@ def _simple_markdown_html(markdown: str) -> str:
             continue
         para = [line]
         i += 1
-        while i < len(lines) and lines[i].strip() and not re.match(r"^(#{1,6})\s+", lines[i]) and not re.match(r"^[-*]\s+", lines[i]) and not lines[i].startswith("```") and not re.match(r"^!\[", lines[i].strip()) and not _parse_slide_marker(lines[i]) and not (_md_is_table_row(lines[i]) and i + 1 < len(lines) and _md_is_table_separator(lines[i + 1])):
+        while i < len(lines) and lines[i].strip() and not re.match(r"^(#{1,6})\s+", lines[i]) and not re.match(r"^[-*]\s+", lines[i]) and not lines[i].startswith("```") and not re.match(r"^!\[", lines[i].strip()) and not _is_special_note_marker(lines[i]) and not (_md_is_table_row(lines[i]) and i + 1 < len(lines) and _md_is_table_separator(lines[i + 1])):
             para.append(lines[i])
             i += 1
         blocks.append("<p>" + _inline_markdown_html("\n".join(para)).replace("\n", "<br/>") + "</p>")
@@ -695,6 +851,11 @@ def _markdown_to_pdf_html_blocks(markdown: str, render_slide_images: bool = Fals
             blocks.append(slide_html)
             i += 1
             continue
+        generated_html = _generated_marker_html(line)
+        if generated_html:
+            blocks.append(generated_html)
+            i += 1
+            continue
         img = re.match(r"^!\[([^\]]*)\]\((.+)\)(?:\{(?:width|size|scale)=(\d+)%?\})?$", line.strip())
         if img:
             scale_attrs = _image_figure_attrs(img.group(3) or 100)
@@ -724,7 +885,7 @@ def _markdown_to_pdf_html_blocks(markdown: str, render_slide_images: bool = Fals
             continue
         para = [line]
         i += 1
-        while i < len(lines) and lines[i].strip() and not re.match(r"^(#{1,6})\s+", lines[i]) and not re.match(r"^[-*]\s+", lines[i]) and not lines[i].startswith("```") and not re.match(r"^!\[", lines[i].strip()) and not _parse_slide_marker(lines[i]) and not (_md_is_table_row(lines[i]) and i + 1 < len(lines) and _md_is_table_separator(lines[i + 1])):
+        while i < len(lines) and lines[i].strip() and not re.match(r"^(#{1,6})\s+", lines[i]) and not re.match(r"^[-*]\s+", lines[i]) and not lines[i].startswith("```") and not re.match(r"^!\[", lines[i].strip()) and not _is_special_note_marker(lines[i]) and not (_md_is_table_row(lines[i]) and i + 1 < len(lines) and _md_is_table_separator(lines[i + 1])):
             para.append(lines[i])
             i += 1
         blocks.append("<p>" + _inline_markdown_html("\n".join(para)).replace("\n", "<br/>") + "</p>")
@@ -751,6 +912,9 @@ def _pdf_export_css() -> str:
     figure.image-card img { max-width: 100%; height: auto; border-radius: 4pt; }
     figure.image-card figcaption { font-size: 8pt; color: #64748b; margin-top: 3pt; }
     mark { background: #fff39a; }
+    .generated-figure { margin: 8pt 0 10pt; }
+    .graph-card img { width: 100%; max-width: 100%; height: auto; }
+    .value-table-card figcaption { font-size: 8pt; color: #475569; margin-bottom: 3pt; }
     """
 
 
@@ -943,6 +1107,34 @@ def _markdown_to_docx_bytes(title: str, markdown: str) -> BytesIO:
                 doc.add_paragraph(f"[슬라이드 삽입 실패: {exc}]")
             i += 1
             continue
+        value_table_marker = _parse_value_table_marker(line)
+        if value_table_marker:
+            doc.add_paragraph(value_table_marker.get("title") or "수치값 표")
+            rows = [value_table_marker.get("columns") or []] + (value_table_marker.get("rows") or [])
+            if rows and rows[0]:
+                col_count = max(max(len(r) for r in rows), 1)
+                table = doc.add_table(rows=len(rows), cols=col_count)
+                table.style = "Table Grid"
+                for r_idx, row in enumerate(rows):
+                    for c_idx in range(col_count):
+                        table.cell(r_idx, c_idx).text = str(row[c_idx] if c_idx < len(row) else "")
+            i += 1
+            continue
+        graph_marker = _parse_graph_marker(line)
+        if graph_marker:
+            doc.add_paragraph(graph_marker.get("title") or "그래프")
+            if graph_marker.get("formula"):
+                doc.add_paragraph("식: " + str(graph_marker.get("formula")))
+            if graph_marker.get("points"):
+                table = doc.add_table(rows=len(graph_marker["points"]) + 1, cols=2)
+                table.style = "Table Grid"
+                table.cell(0, 0).text = str(graph_marker.get("x_label") or "x")
+                table.cell(0, 1).text = str(graph_marker.get("y_label") or "y")
+                for idx, (x, y) in enumerate(graph_marker["points"], 1):
+                    table.cell(idx, 0).text = f"{x:g}"
+                    table.cell(idx, 1).text = f"{y:g}"
+            i += 1
+            continue
         img = image_pattern.search(line)
         if img:
             try:
@@ -1009,7 +1201,7 @@ def _selected_ids(values: Optional[List[str]]) -> List[str]:
 def _print_shell(title: str, body_html: str, subtitle: str = "") -> HTMLResponse:
     safe_title = escape(title or "PDF 출력")
     safe_subtitle = escape(subtitle or "")
-    return HTMLResponse(f"""<!doctype html><html lang='ko'><head><meta charset='utf-8'/><meta name='viewport' content='width=device-width,initial-scale=1'/><title>{safe_title}</title><script>window.MathJax={{tex:{{inlineMath:[["$","$"],["\\\\(","\\\\)"]],displayMath:[["$$","$$"],["\\\\[","\\\\]"]],processEscapes:true}},svg:{{fontCache:'global'}}}};</script><script defer src='https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js'></script><style>@page{{size:A4;margin:14mm}}*{{box-sizing:border-box}}body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',Arial,sans-serif;margin:0;background:#f5f7fb;color:#111827;font-size:14px;line-height:1.68}}.print-actions{{position:sticky;top:0;z-index:10;display:flex;gap:8px;align-items:center;justify-content:space-between;padding:12px 16px;background:rgba(255,255,255,.94);border-bottom:1px solid #e4e7ec;backdrop-filter:blur(8px)}}.print-actions .meta{{color:#667085;font-size:13px}}button,a{{border:0;border-radius:10px;padding:9px 12px;background:#4f46e5;color:white;text-decoration:none;font-weight:800;cursor:pointer}}a.secondary{{background:#eef2ff;color:#4f46e5}}main{{max-width:900px;margin:0 auto;padding:24px 18px 56px}}.print-doc,.paper-pack{{background:white;border:1px solid #e4e7ec;border-radius:18px;padding:28px 34px;margin:0 0 24px;box-shadow:0 10px 28px rgba(16,24,40,.06);break-after:page}}.print-doc:last-child,.paper-pack:last-child{{break-after:auto}}.doc-meta,.pack-meta,.question-meta{{color:#667085;font-size:12px;margin:4px 0 18px}}h1{{font-size:28px;line-height:1.25;letter-spacing:-.035em;margin:0 0 10px}}h2{{font-size:20px;margin:28px 0 10px;letter-spacing:-.02em}}h3{{font-size:16px;margin:18px 0 8px}}p{{margin:0 0 12px}}ul,ol{{padding-left:22px}}li{{margin:4px 0}}.question-card{{border:1px solid #d0d5dd;border-radius:14px;padding:18px;margin:18px 0 22px;break-inside:avoid;background:#fff}}.solution-card{{border:1px solid #d0d5dd;border-radius:14px;padding:18px;margin:18px 0 22px;break-inside:avoid;background:#fff}}.prompt-box{{border-left:4px solid #4f46e5;padding:10px 12px;background:#f8f9ff;border-radius:10px;margin:10px 0 14px}}.answer-space{{min-height:150px;border:1px dashed #98a2b3;border-radius:12px;background:linear-gradient(#fff,#fff),repeating-linear-gradient(0deg,transparent,transparent 27px,#eef2f7 28px);margin-top:14px;padding:12px;color:#98a2b3}}.answer-box{{border:1px solid #bbf7d0;background:#f0fdf4;border-radius:12px;padding:12px;margin:10px 0}}.section-box{{border:1px solid #e4e7ec;border-radius:12px;padding:12px;margin:10px 0;background:#fcfcfd}}.choices{{list-style-type:upper-alpha}}mark{{background:#fff39a}}figure.image-card{{width:60%;margin:18px 0;text-align:left}}figure.image-card img{{display:block;width:100%;max-width:100%;height:auto;max-height:none;object-fit:contain;margin-left:0;margin-right:auto;border-radius:10px}}figure.image-card figcaption{{font-size:12px;color:#667085;margin-top:6px;text-align:left}}img{{max-width:100%;height:auto;object-fit:contain;border-radius:10px}}.table-wrap{{overflow:visible;margin:18px 0}}table{{width:100%;border-collapse:collapse;font-size:13px;break-inside:auto}}th,td{{border:1px solid #d0d5dd;padding:8px 10px;vertical-align:top;text-align:left}}th{{background:#f2f4f7;font-weight:800}}pre,.flow-box{{background:#f8fafc;border:1px solid #e4e7ec;border-radius:10px;padding:12px;white-space:pre-wrap}}@media print{{body{{background:white;font-size:12px}}main{{max-width:none;margin:0;padding:0}}.print-actions{{display:none}}.print-doc,.paper-pack{{border:0;border-radius:0;box-shadow:none;margin:0;padding:0 0 12mm}}.question-card,.solution-card{{break-inside:avoid}}tr{{break-inside:avoid}}}}</style></head><body><div class='print-actions'><div><b>{safe_title}</b><div class='meta'>{safe_subtitle}</div></div><div><button onclick='window.print()'>PDF로 저장/인쇄</button> <a class='secondary' href='/sources/manage'>파일 관리</a></div></div><main>{body_html}</main></body></html>""")
+    return HTMLResponse(f"""<!doctype html><html lang='ko'><head><meta charset='utf-8'/><meta name='viewport' content='width=device-width,initial-scale=1'/><title>{safe_title}</title><script>window.MathJax={{tex:{{inlineMath:[["$","$"],["\\\\(","\\\\)"]],displayMath:[["$$","$$"],["\\\\[","\\\\]"]],processEscapes:true}},svg:{{fontCache:'global'}}}};</script><script defer src='https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js'></script><style>@page{{size:A4;margin:14mm}}*{{box-sizing:border-box}}body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',Arial,sans-serif;margin:0;background:#f5f7fb;color:#111827;font-size:14px;line-height:1.68}}.print-actions{{position:sticky;top:0;z-index:10;display:flex;gap:8px;align-items:center;justify-content:space-between;padding:12px 16px;background:rgba(255,255,255,.94);border-bottom:1px solid #e4e7ec;backdrop-filter:blur(8px)}}.print-actions .meta{{color:#667085;font-size:13px}}button,a{{border:0;border-radius:10px;padding:9px 12px;background:#4f46e5;color:white;text-decoration:none;font-weight:800;cursor:pointer}}a.secondary{{background:#eef2ff;color:#4f46e5}}main{{max-width:900px;margin:0 auto;padding:24px 18px 56px}}.print-doc,.paper-pack{{background:white;border:1px solid #e4e7ec;border-radius:18px;padding:28px 34px;margin:0 0 24px;box-shadow:0 10px 28px rgba(16,24,40,.06);break-after:page}}.print-doc:last-child,.paper-pack:last-child{{break-after:auto}}.doc-meta,.pack-meta,.question-meta{{color:#667085;font-size:12px;margin:4px 0 18px}}h1{{font-size:28px;line-height:1.25;letter-spacing:-.035em;margin:0 0 10px}}h2{{font-size:20px;margin:28px 0 10px;letter-spacing:-.02em}}h3{{font-size:16px;margin:18px 0 8px}}p{{margin:0 0 12px}}ul,ol{{padding-left:22px}}li{{margin:4px 0}}.question-card{{border:1px solid #d0d5dd;border-radius:14px;padding:18px;margin:18px 0 22px;break-inside:avoid;background:#fff}}.solution-card{{border:1px solid #d0d5dd;border-radius:14px;padding:18px;margin:18px 0 22px;break-inside:avoid;background:#fff}}.prompt-box{{border-left:4px solid #4f46e5;padding:10px 12px;background:#f8f9ff;border-radius:10px;margin:10px 0 14px}}.answer-space{{min-height:150px;border:1px dashed #98a2b3;border-radius:12px;background:linear-gradient(#fff,#fff),repeating-linear-gradient(0deg,transparent,transparent 27px,#eef2f7 28px);margin-top:14px;padding:12px;color:#98a2b3}}.answer-box{{border:1px solid #bbf7d0;background:#f0fdf4;border-radius:12px;padding:12px;margin:10px 0}}.section-box{{border:1px solid #e4e7ec;border-radius:12px;padding:12px;margin:10px 0;background:#fcfcfd}}.choices{{list-style-type:upper-alpha}}mark{{background:#fff39a}}figure.image-card{{width:100%;margin:18px 0;text-align:left}}figure.image-card img{{display:block;width:100%;max-width:100%;height:auto;max-height:none;object-fit:contain;margin-left:0;margin-right:auto;border-radius:10px}}figure.image-card figcaption{{font-size:12px;color:#667085;margin-top:6px;text-align:left}}img{{max-width:100%;height:auto;object-fit:contain;border-radius:10px}}.table-wrap{{overflow:visible;margin:18px 0}}table{{width:100%;border-collapse:collapse;font-size:13px;break-inside:auto}}th,td{{border:1px solid #d0d5dd;padding:8px 10px;vertical-align:top;text-align:left}}th{{background:#f2f4f7;font-weight:800}}pre,.flow-box{{background:#f8fafc;border:1px solid #e4e7ec;border-radius:10px;padding:12px;white-space:pre-wrap}}@media print{{body{{background:white;font-size:12px}}main{{max-width:none;margin:0;padding:0}}.print-actions{{display:none}}.print-doc,.paper-pack{{border:0;border-radius:0;box-shadow:none;margin:0;padding:0 0 12mm}}.question-card,.solution-card{{break-inside:avoid}}tr{{break-inside:avoid}}}}</style></head><body><div class='print-actions'><div><b>{safe_title}</b><div class='meta'>{safe_subtitle}</div></div><div><button onclick='window.print()'>PDF로 저장/인쇄</button> <a class='secondary' href='/sources/manage'>파일 관리</a></div></div><main>{body_html}</main></body></html>""")
 
 
 
@@ -2081,7 +2273,7 @@ def print_study_note_page(source_id: str):
         raise HTTPException(status_code=404, detail="Study note not found")
     title = escape(note["source"].get("title", source_id))
     html = _simple_markdown_html(note.get("markdown", ""))
-    return HTMLResponse(f"""<!doctype html><html lang='ko'><head><meta charset='utf-8'/><meta name='viewport' content='width=device-width,initial-scale=1'/><title>{title}</title><script>window.MathJax={{tex:{{inlineMath:[["$","$"],["\\\\(","\\\\)"]],displayMath:[["$$","$$"],["\\\\[","\\\\]"]],processEscapes:true}},svg:{{fontCache:'global'}}}};</script><script defer src='https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js'></script><style>body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',Arial,sans-serif;font-size:16px;line-height:1.72;max-width:820px;margin:0 auto;padding:34px;color:#111827}}.bar{{display:flex;gap:8px;margin-bottom:20px}}button,a{{border:0;border-radius:10px;padding:9px 12px;background:#4f46e5;color:white;text-decoration:none;font-weight:800}}figure.image-card{{width:60%;margin:18px 0;text-align:left}}figure.image-card img{{display:block;width:100%;max-width:100%;height:auto;max-height:none;object-fit:contain;margin-left:0;margin-right:auto;border-radius:10px}}figure.image-card figcaption{{font-size:12px;color:#667085;margin-top:6px;text-align:left}}img{{max-width:100%;height:auto;object-fit:contain;border-radius:10px}}figcaption{{font-size:12px;color:#667085;margin-top:6px}}mark{{background:#fff39a}}.table-wrap{{overflow:visible;margin:18px 0}}table{{width:100%;border-collapse:collapse;font-size:13px}}th,td{{border:1px solid #d0d5dd;padding:8px 10px;vertical-align:top;text-align:left}}th{{background:#f2f4f7;font-weight:800}}pre,.flow-box{{background:#f8fafc;border:1px solid #e4e7ec;border-radius:10px;padding:12px;white-space:pre-wrap}}@media print{{.bar{{display:none}}body{{padding:0;max-width:none}}table{{break-inside:auto}}tr{{break-inside:avoid}}}}</style></head><body><div class='bar'><button onclick='window.print()'>PDF로 저장/인쇄</button><a href='/static/study/index.html'>Study Studio</a><a href='/'>홈</a></div><article>{html}</article></body></html>""")
+    return HTMLResponse(f"""<!doctype html><html lang='ko'><head><meta charset='utf-8'/><meta name='viewport' content='width=device-width,initial-scale=1'/><title>{title}</title><script>window.MathJax={{tex:{{inlineMath:[["$","$"],["\\\\(","\\\\)"]],displayMath:[["$$","$$"],["\\\\[","\\\\]"]],processEscapes:true}},svg:{{fontCache:'global'}}}};</script><script defer src='https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js'></script><style>body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',Arial,sans-serif;font-size:16px;line-height:1.72;max-width:820px;margin:0 auto;padding:34px;color:#111827}}.bar{{display:flex;gap:8px;margin-bottom:20px}}button,a{{border:0;border-radius:10px;padding:9px 12px;background:#4f46e5;color:white;text-decoration:none;font-weight:800}}figure.image-card{{width:100%;margin:18px 0;text-align:left}}figure.image-card img{{display:block;width:100%;max-width:100%;height:auto;max-height:none;object-fit:contain;margin-left:0;margin-right:auto;border-radius:10px}}figure.image-card figcaption{{font-size:12px;color:#667085;margin-top:6px;text-align:left}}img{{max-width:100%;height:auto;object-fit:contain;border-radius:10px}}figcaption{{font-size:12px;color:#667085;margin-top:6px}}mark{{background:#fff39a}}.table-wrap{{overflow:visible;margin:18px 0}}table{{width:100%;border-collapse:collapse;font-size:13px}}th,td{{border:1px solid #d0d5dd;padding:8px 10px;vertical-align:top;text-align:left}}th{{background:#f2f4f7;font-weight:800}}pre,.flow-box{{background:#f8fafc;border:1px solid #e4e7ec;border-radius:10px;padding:12px;white-space:pre-wrap}}@media print{{.bar{{display:none}}body{{padding:0;max-width:none}}table{{break-inside:auto}}tr{{break-inside:avoid}}}}</style></head><body><div class='bar'><button onclick='window.print()'>PDF로 저장/인쇄</button><a href='/static/study/index.html'>Study Studio</a><a href='/'>홈</a></div><article>{html}</article></body></html>""")
 
 @app.get("/unit-maps/{unit_map_id}", dependencies=[Depends(require_auth)])
 def get_unit_map_endpoint(unit_map_id: str):
