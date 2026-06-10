@@ -310,7 +310,7 @@ def _clean_marker_attr(value: str) -> str:
     return re.sub(r"[\r\n\t]+", " ", str(value or "")).replace('"', "'").strip()
 
 
-def _normalize_image_scale(value: Any = 60, default: int = 60) -> int:
+def _normalize_image_scale(value: Any = 100, default: int = 100) -> int:
     try:
         match = re.search(r"\d+", str(value or ""))
         scale = int(match.group(0)) if match else int(default)
@@ -320,12 +320,21 @@ def _normalize_image_scale(value: Any = 60, default: int = 60) -> int:
     return max(10, min(100, scale))
 
 
-def _image_figure_attrs(scale: Any = 60) -> str:
+def _image_figure_attrs(scale: Any = 100) -> str:
     normalized = _normalize_image_scale(scale)
     return f" data-image-scale='{normalized}' style='width:{normalized}%;'"
 
 
-def _slide_marker_line(source_id: str, page: int, caption: str = "", zoom: float = 2.0, size: int = 60) -> str:
+def _normalize_note_markdown_artifacts(markdown: str) -> str:
+    text = str(markdown or "").replace("\r\n", "\n")
+    # Normalize broken/escaped HTML line-break artifacts that otherwise render as literal '< br >'.
+    text = re.sub(r"&lt;\s*br\s*/?\s*&gt;", "\n", text, flags=re.I)
+    text = re.sub(r"<\s*br\s*/?\s*>", "\n", text, flags=re.I)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip() + ("\n" if text.strip() else "")
+
+
+def _slide_marker_line(source_id: str, page: int, caption: str = "", zoom: float = 2.0, size: int = 100) -> str:
     safe_source = _clean_marker_attr(source_id)
     safe_caption = _clean_marker_attr(caption or f"{safe_source} p.{page}")
     page = max(1, int(page or 1))
@@ -387,7 +396,7 @@ def _complete_or_convert_slide_placeholder(line: str, subject: str = "") -> Tupl
                 zoom = float(attrs.get("zoom") or 2.0)
             except Exception:
                 zoom = 2.0
-            size = _normalize_image_scale(attrs.get("size") or attrs.get("scale") or attrs.get("width") or 60)
+            size = _normalize_image_scale(attrs.get("size") or attrs.get("scale") or attrs.get("width") or 100)
             marker = _slide_marker_line(source_id, page, caption, zoom, size)
             return marker, 1 if marker != line else 0
         return line, 0
@@ -457,7 +466,7 @@ def _auto_insert_slide_markers(markdown: str, subject: str = "", enabled: bool =
     """
     if not enabled or not (markdown or "").strip():
         return markdown or "", 0
-    lines = (markdown or "").replace("\r\n", "\n").split("\n")
+    lines = _normalize_note_markdown_artifacts(markdown).split("\n")
     converted = 0
     for idx, line in enumerate(lines):
         new_line, count = _complete_or_convert_slide_placeholder(line, subject)
@@ -509,10 +518,10 @@ def _parse_slide_marker(line: str) -> Optional[dict]:
     except Exception:
         zoom = 2.0
     caption = attrs.get("caption") or attrs.get("label") or f"{source_id} p.{page}"
-    size = _normalize_image_scale(attrs.get("size") or attrs.get("scale") or attrs.get("width") or 60)
+    size = _normalize_image_scale(attrs.get("size") or attrs.get("scale") or attrs.get("width") or 100)
     return {"source_id": source_id, "page": page, "zoom": zoom, "caption": caption, "size": size}
 
-@lru_cache(maxsize=160)
+@lru_cache(maxsize=24)
 def _render_pdf_page_png_base64(stored_path: str, mtime_ns: int, page: int, zoom: float) -> Dict[str, Any]:
     try:
         import fitz  # PyMuPDF
@@ -561,14 +570,21 @@ def _render_slide_data(source_id: str, page: int = 1, zoom: float = 2.0) -> dict
         "png_base64": rendered["png_base64"],
     }
 
-def _slide_marker_html(line: str) -> Optional[str]:
+def _slide_marker_html(line: str, render_image: bool = True) -> Optional[str]:
     marker = _parse_slide_marker(line)
     if not marker:
         return None
     caption = marker.get("caption") or f"{marker['source_id']} p.{marker['page']}"
+    attrs = _image_figure_attrs(marker.get("size", 100))
+    if not render_image:
+        return (
+            f"<figure class='image-card slide-card'{attrs}>"
+            f"<div class='flow-box'>슬라이드 이미지: {escape(caption)} · source_id={escape(marker['source_id'])} · page={escape(marker['page'])}</div>"
+            f"<figcaption>{escape(caption)}</figcaption>"
+            "</figure>"
+        )
     try:
         data = _render_slide_data(marker["source_id"], marker["page"], marker["zoom"])
-        attrs = _image_figure_attrs(marker.get("size", 60))
         return (
             f"<figure class='image-card slide-card'{attrs}>"
             f"<img alt='{escape(caption)}' src='{escape(data['data_url'])}'/>"
@@ -576,7 +592,6 @@ def _slide_marker_html(line: str) -> Optional[str]:
             "</figure>"
         )
     except Exception as exc:
-        attrs = _image_figure_attrs(marker.get("size", 60))
         return (
             f"<figure class='image-card slide-card slide-error'{attrs}>"
             f"<div class='flow-box'>슬라이드 삽입 실패: {escape(str(exc))}</div>"
@@ -587,7 +602,7 @@ def _slide_marker_html(line: str) -> Optional[str]:
 
 
 def _simple_markdown_html(markdown: str) -> str:
-    lines = (markdown or "").replace("\r\n", "\n").split("\n")
+    lines = _normalize_note_markdown_artifacts(markdown).split("\n")
     blocks: List[str] = []
     i = 0
     while i < len(lines):
@@ -607,14 +622,14 @@ def _simple_markdown_html(markdown: str) -> str:
             if block:
                 blocks.append(block)
             continue
-        slide_html = _slide_marker_html(line)
+        slide_html = _slide_marker_html(line, render_image=True)
         if slide_html:
             blocks.append(slide_html)
             i += 1
             continue
         img = re.match(r"^!\[([^\]]*)\]\((.+)\)(?:\{(?:width|size|scale)=(\d+)%?\})?$", line.strip())
         if img:
-            scale_attrs = _image_figure_attrs(img.group(3) or 60)
+            scale_attrs = _image_figure_attrs(img.group(3) or 100)
             blocks.append(f"<figure class='image-card'{scale_attrs}><img alt='{escape(img.group(1) or '이미지')}' src='{escape(img.group(2))}'/><figcaption>{escape(img.group(1) or '이미지')}</figcaption></figure>")
             i += 1
             continue
@@ -648,14 +663,14 @@ def _simple_markdown_html(markdown: str) -> str:
     return "\n".join(blocks)
 
 
-def _markdown_to_pdf_html_blocks(markdown: str) -> List[str]:
+def _markdown_to_pdf_html_blocks(markdown: str, render_slide_images: bool = False) -> List[str]:
     """Convert Markdown into small HTML blocks for server-side PDF pagination.
 
     The file-manager direct PDF download cannot rely on browser print. This helper
     keeps each Markdown block separate so PyMuPDF can paginate instead of shrinking
     a whole long note onto one page.
     """
-    lines = (markdown or "").replace("\r\n", "\n").split("\n")
+    lines = _normalize_note_markdown_artifacts(markdown).split("\n")
     blocks: List[str] = []
     i = 0
     while i < len(lines):
@@ -675,14 +690,14 @@ def _markdown_to_pdf_html_blocks(markdown: str) -> List[str]:
             if block:
                 blocks.append(block)
             continue
-        slide_html = _slide_marker_html(line)
+        slide_html = _slide_marker_html(line, render_image=render_slide_images)
         if slide_html:
             blocks.append(slide_html)
             i += 1
             continue
         img = re.match(r"^!\[([^\]]*)\]\((.+)\)(?:\{(?:width|size|scale)=(\d+)%?\})?$", line.strip())
         if img:
-            scale_attrs = _image_figure_attrs(img.group(3) or 60)
+            scale_attrs = _image_figure_attrs(img.group(3) or 100)
             blocks.append(f"<figure class='image-card'{scale_attrs}><img alt='{escape(img.group(1) or '이미지')}' src='{escape(img.group(2))}'/><figcaption>{escape(img.group(1) or '이미지')}</figcaption></figure>")
             i += 1
             continue
@@ -772,6 +787,8 @@ def _pdf_insert_block(doc: Any, page: Any, y: float, html: str, css: str, *, mar
 
 
 def _study_notes_pdf_bytes(source_ids: List[str], title: str = "Study Notes") -> BytesIO:
+    if len(source_ids) > 5:
+        raise HTTPException(status_code=413, detail="PDF direct download is limited to 5 study notes. Split the selection or use browser print for large/image-heavy bundles.")
     try:
         import fitz  # PyMuPDF
     except Exception as exc:
@@ -797,7 +814,7 @@ def _study_notes_pdf_bytes(source_ids: List[str], title: str = "Study Notes") ->
             f"source_id: {escape(source.get('id') or source_id)}</div>"
         )
         page, y = _pdf_insert_block(doc, page, y, heading, css)
-        blocks = _markdown_to_pdf_html_blocks(note.get("markdown", "")) or ["<p>출력할 본문이 없습니다.</p>"]
+        blocks = _markdown_to_pdf_html_blocks(note.get("markdown", ""), render_slide_images=False) or ["<p>출력할 본문이 없습니다.</p>"]
         for block in blocks:
             page, y = _pdf_insert_block(doc, page, y, block, css)
     if not exported:
@@ -918,7 +935,7 @@ def _markdown_to_docx_bytes(title: str, markdown: str) -> BytesIO:
             try:
                 data = _render_slide_data(slide_marker["source_id"], slide_marker["page"], slide_marker["zoom"])
                 bio = BytesIO(base64.b64decode(data["png_base64"], validate=False))
-                _add_docx_image_left(doc, bio, _docx_body_width(doc, _normalize_image_scale(slide_marker.get("size", 60)) / 100))
+                _add_docx_image_left(doc, bio, _docx_body_width(doc, _normalize_image_scale(slide_marker.get("size", 100)) / 100))
                 caption = _clean_markdown_inline_for_docx(slide_marker.get("caption") or data.get("label") or "슬라이드")
                 if caption:
                     _add_docx_caption_left(doc, caption)
@@ -1334,10 +1351,11 @@ def _problem_pack_print_html(pack_data: Dict[str, Any], mode: str, pack_index: i
 
 
 def _prepare_note_markdown_for_save(markdown: str, subject: str = "", source_type: str = "generated_note", auto_slide_images: bool = True) -> Tuple[str, int]:
+    markdown = _normalize_note_markdown_artifacts(markdown)
     auto_enabled_types = {"generated_note", "exam_cram"}
     if source_type not in auto_enabled_types:
-        return markdown or "", 0
-    return _auto_insert_slide_markers(markdown or "", subject, auto_slide_images)
+        return markdown, 0
+    return _auto_insert_slide_markers(markdown, subject, auto_slide_images)
 
 
 def _coerce_object_payload(value: Any, value_json: str = "", field_name: str = "payload") -> Dict[str, Any]:

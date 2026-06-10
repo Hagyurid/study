@@ -28,17 +28,17 @@ function restore() {
 function status(text) { $('saveState').textContent = text; }
 function normalizeImageScale(value) {
   const n = parseInt(String(value || '').replace(/[^0-9]/g, ''), 10);
-  if (!Number.isFinite(n)) return '60';
+  if (!Number.isFinite(n)) return '100';
   const rounded = Math.round(n / 10) * 10;
   return String(Math.min(100, Math.max(10, rounded)));
 }
-function imageScaleOptions(selected = 60) {
+function imageScaleOptions(selected = 100) {
   const current = normalizeImageScale(selected);
   return Array.from({ length: 10 }, (_, i) => String((i + 1) * 10))
     .map(v => `<option value="${v}"${v === current ? ' selected' : ''}>${v}%</option>`)
     .join('');
 }
-function imageControlHtml(scale = 60) {
+function imageControlHtml(scale = 100) {
   const safeScale = normalizeImageScale(scale);
   return `<div class="image-scale-tools" contenteditable="false" aria-label="이미지 크기 조정"><label>크기 <select class="image-scale-select">${imageScaleOptions(safeScale)}</select></label><button type="button" class="image-scale-apply">적용</button></div>`;
 }
@@ -71,10 +71,10 @@ function applyImageScaleToAll() {
   status(count ? `이미지 ${count}개에 ${scale}% 적용` : '적용할 이미지가 없습니다');
 }
 function restoreImageScale() {
-  const scale = normalizeImageScale(localStorage.getItem(IMAGE_SCALE) || '60');
+  const scale = normalizeImageScale(localStorage.getItem(IMAGE_SCALE) || '100');
   if ($('imageScale')) $('imageScale').value = scale;
 }
-function defaultImageScale() { return normalizeImageScale(localStorage.getItem(IMAGE_SCALE) || $('imageScale')?.value || '60'); }
+function defaultImageScale() { return normalizeImageScale(localStorage.getItem(IMAGE_SCALE) || $('imageScale')?.value || '100'); }
 function esc(value) { return String(value ?? '').replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m])); }
 function attr(value) { return esc(value).replace(/`/g, '&#96;'); }
 async function api(path, opt = {}) {
@@ -105,7 +105,7 @@ function protectMath(text) {
 }
 function restoreStash(html, stash) { return html.replace(new RegExp('\\u0000M(\\d+)\\u0000', 'g'), (_, i) => stash[Number(i)] || ''); }
 
-function imageFigureHtml(alt, src, scale = 60) {
+function imageFigureHtml(alt, src, scale = 100) {
   const safeAlt = attr(alt || '이미지');
   const safeSrc = attr(src || '');
   const safeScale = normalizeImageScale(scale);
@@ -122,7 +122,7 @@ function parseSlideMarker(line) {
   const page = Math.max(1, parseInt(attrs.page || attrs.p || '1', 10) || 1);
   const zoom = Math.min(4, Math.max(0.5, parseFloat(attrs.zoom || '2') || 2));
   const caption = attrs.caption || attrs.label || `슬라이드 ${sourceId} p.${page}`;
-  const size = normalizeImageScale(attrs.size || attrs.scale || attrs.width || 60);
+  const size = normalizeImageScale(attrs.size || attrs.scale || attrs.width || 100);
   if (!sourceId) return null;
   return { sourceId, page, zoom, caption, size };
 }
@@ -131,7 +131,7 @@ function slideMarkerMarkdown(sourceId, page, caption, zoom, size) {
   const src = slideMarkerAttr(sourceId);
   const cap = slideMarkerAttr(caption || `슬라이드 ${src} p.${page}`);
   const z = zoom ? ` zoom="${slideMarkerAttr(zoom)}"` : '';
-  const scale = normalizeImageScale(size || 60);
+  const scale = normalizeImageScale(size || 100);
   return `[[SLIDE_IMAGE source_id="${src}" page="${page}" caption="${cap}"${z} size="${scale}"]]`;
 }
 function slideFigureHtml(info) {
@@ -139,7 +139,7 @@ function slideFigureHtml(info) {
   const safePage = attr(info.page || 1);
   const safeZoom = attr(info.zoom || 2);
   const safeCaption = attr(info.caption || `슬라이드 ${info.sourceId} p.${info.page || 1}`);
-  const safeScale = normalizeImageScale(info.size || 60);
+  const safeScale = normalizeImageScale(info.size || 100);
   return `<figure class="image-card slide-card" data-slide-source-id="${safeSource}" data-slide-page="${safePage}" data-slide-zoom="${safeZoom}" data-slide-caption="${safeCaption}" data-image-scale="${safeScale}" style="width:${safeScale}%"><button type="button" class="image-delete" contenteditable="false" aria-label="슬라이드 삭제">삭제</button>${imageControlHtml(safeScale)}<div class="slide-placeholder" contenteditable="false">슬라이드 불러오는 중 · ${safeSource} p.${safePage}</div><figcaption contenteditable="true">${esc(info.caption || `슬라이드 ${info.sourceId} p.${info.page || 1}`)}</figcaption></figure>`;
 }
 async function hydrateSlideImages() {
@@ -183,7 +183,7 @@ async function hydrateSlideImages() {
 }
 function enhanceImageCards() {
   document.querySelectorAll('#doc figure.image-card').forEach((figure) => {
-    if (!figure.dataset.imageScale) figure.dataset.imageScale = '60';
+    if (!figure.dataset.imageScale) figure.dataset.imageScale = '100';
     figure.style.width = normalizeImageScale(figure.dataset.imageScale) + '%';
     if (!figure.querySelector('.image-delete')) {
       const btn = document.createElement('button');
@@ -196,12 +196,12 @@ function enhanceImageCards() {
     }
     if (!figure.querySelector('.image-scale-tools')) {
       const wrap = document.createElement('div');
-      wrap.innerHTML = imageControlHtml(figure.dataset.imageScale || '60');
+      wrap.innerHTML = imageControlHtml(figure.dataset.imageScale || '100');
       const tools = wrap.firstElementChild;
       const img = figure.querySelector('img,.slide-placeholder,figcaption');
       figure.insertBefore(tools, img || figure.firstChild);
     } else {
-      syncImageScaleControl(figure, figure.dataset.imageScale || '60');
+      syncImageScaleControl(figure, figure.dataset.imageScale || '100');
     }
   });
 }
@@ -217,9 +217,12 @@ function inlineMarkdownToHtml(text) {
 function normalizeMarkdownArtifacts(md) {
   return String(md || '')
     .replace(/\r\n/g, '\n')
+    .replace(/&lt;\s*br\s*\/?\s*&gt;/gi, '\n')
+    .replace(/<\s*br\s*\/?\s*>/gi, '\n')
     .split('\n')
     .map((line) => /^M\d+$/.test(line.trim()) ? '없음' : line)
-    .join('\n');
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n');
 }
 function isTableSeparator(line) {
   return /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line || '');
@@ -394,12 +397,12 @@ function blockToMarkdown(el) {
       const sourceId = el.dataset.slideSourceId || '';
       const page = Math.max(1, parseInt(el.dataset.slidePage || '1', 10) || 1);
       const zoom = el.dataset.slideZoom || '2';
-      const scale = normalizeImageScale(el.dataset.imageScale || '60');
+      const scale = normalizeImageScale(el.dataset.imageScale || '100');
       return sourceId ? slideMarkerMarkdown(sourceId, page, cap, zoom, scale) : '';
     }
     const img = el.querySelector('img');
     const src = el.dataset.mdSrc || img?.src || '';
-    const scale = normalizeImageScale(el.dataset.imageScale || '60');
+    const scale = normalizeImageScale(el.dataset.imageScale || '100');
     return src ? `![${cap}](${src}){width=${scale}%}` : '';
   }
   if (tag === 'img') return `![${el.alt || '이미지'}](${el.src})`;
@@ -490,7 +493,7 @@ async function newNote(type) { currentSourceId = ''; currentSourceType = type; $
 async function saveNote() {
   try {
     syncMarkdownFromDocument();
-    const payload = { title: $('title').value.trim() || 'Untitled', content_markdown: $('markdown').value, change_summary: 'edited in Study Note Studio', auto_slide_images: true };
+    const payload = { title: $('title').value.trim() || 'Untitled', content_markdown: normalizeMarkdownArtifacts($('markdown').value), change_summary: 'edited in Study Note Studio', auto_slide_images: false };
     let data;
     if (currentSourceId) {
       data = await api('/study/notes/' + encodeURIComponent(currentSourceId), { method: 'PUT', headers: headers(), body: JSON.stringify(payload) });
@@ -597,14 +600,14 @@ $('doc').addEventListener('click', (ev) => {
   const figure = ev.target.closest?.('figure.image-card');
   if (figure && $('doc').contains(figure)) {
     activeImageFigure = figure;
-    applyImageScale(figure, figure.dataset.imageScale || figure.style.width || '60');
+    applyImageScale(figure, figure.dataset.imageScale || figure.style.width || '100');
   }
   const scaleApply = ev.target.closest?.('.image-scale-apply');
   if (scaleApply && $('doc').contains(scaleApply)) {
     ev.preventDefault();
     ev.stopPropagation();
     const targetFigure = scaleApply.closest('figure.image-card');
-    const value = targetFigure?.querySelector('.image-scale-select')?.value || targetFigure?.dataset.imageScale || '60';
+    const value = targetFigure?.querySelector('.image-scale-select')?.value || targetFigure?.dataset.imageScale || '100';
     applyImageScale(targetFigure, value);
     activeImageFigure = targetFigure;
     syncMarkdownFromDocument();
