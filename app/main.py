@@ -23,7 +23,7 @@ from app.db import (
     get_dashboard,
     get_mapping_status, get_next_section, get_source_markdown, get_problem_pack_by_token, get_problem_pack_by_id, get_source,
     get_calculator_blueprint, get_unit_map, get_workflow_options, init_db, list_external_notes,
-    list_problem_packs,
+    list_problem_packs, validate_problem_pack_render,
     list_note_versions, list_note_source_versions, list_sources, list_study_notes, list_unit_maps, list_unmapped_sources,
     list_calculator_blueprints, list_workflow_checkpoints, list_workflow_plans, list_workflow_runs,
     save_calculator_blueprint, save_note_version, save_outline, save_problem_pack,
@@ -35,7 +35,7 @@ from app.db import (
 )
 from app.models import (
     CalculatorBlueprintSave, GenericItemsSave, NoteVersionSave, OutlineSave,
-    ProblemPackSave, ProjectCreate, SearchRequest, SectionSave, TextSourceSave,
+    ProblemPackSave, ProblemPackRenderValidate, ProjectCreate, SearchRequest, SectionSave, TextSourceSave,
     TranscriptRevisionSave, UnitMapSave, WorkflowPlanCreate, WorkflowRunCreate,
     WorkflowCheckpointSave, StudyNoteSave, StudyNoteUpdate, ExamCramSave, MaintenanceCleanupRequest,
 )
@@ -71,6 +71,19 @@ def require_auth(authorization: Optional[str] = Header(default=None), x_action_k
     if _is_authorized(authorization, x_action_key):
         return True
     raise HTTPException(status_code=401, detail="Invalid action key")
+
+
+def _public_base_url() -> str:
+    base = str(PUBLIC_BASE_URL or "https://study-xqe8.onrender.com").strip().rstrip("/")
+    base = base.replace("study-xge8.onrender.com", "study-xqe8.onrender.com")
+    return base or "https://study-xqe8.onrender.com"
+
+
+def _public_url(path: str = "") -> str:
+    path = "/" + str(path or "").lstrip("/")
+    if path == "/":
+        return _public_base_url() + "/"
+    return _public_base_url() + path
 
 
 def _options(selected: str = "lecture_slides") -> str:
@@ -1847,20 +1860,46 @@ def get_unit_map_endpoint(unit_map_id: str):
     return unit_map
 
 
+@app.post("/problem-packs/validate-render", dependencies=[Depends(require_auth)])
+def validate_problem_pack_render_endpoint(payload: ProblemPackRenderValidate):
+    pack = _coerce_object_payload(payload.pack, payload.pack_json, "pack")
+    return validate_problem_pack_render(pack, strict=payload.strict)
+
+
 @app.post("/problem-packs", dependencies=[Depends(require_auth)])
 def save_problem_pack_endpoint(payload: ProblemPackSave):
     pack = _coerce_object_payload(payload.pack, payload.pack_json, "pack")
-    saved = save_problem_pack(payload.title, pack, payload.subject, payload.unitNumber, payload.unitTitle, payload.tags, payload.source_refs)
-    solvepad_url = f"{PUBLIC_BASE_URL}/static/solvepad/index.html"
-    legacy_import_url = f"{solvepad_url}?server={PUBLIC_BASE_URL}&importToken={saved['token']}"
+    validation = validate_problem_pack_render(pack, strict=False) if payload.validate_render else {"ok": True, "warnings": [], "errors": []}
+    if validation.get("errors"):
+        raise HTTPException(status_code=400, detail={"message": "Problem pack render validation failed", "validation": validation})
+    saved = save_problem_pack(
+        payload.title,
+        pack,
+        payload.subject,
+        payload.unitNumber,
+        payload.unitTitle,
+        payload.tags,
+        payload.source_refs,
+        payload.replace_source_id,
+        payload.replace_pack_id,
+        payload.version_label,
+        payload.change_summary,
+        validation.get("warnings", []),
+    )
+    solvepad_url = _public_url("/static/solvepad/index.html")
+    base = _public_base_url()
+    legacy_import_url = f"{solvepad_url}?server={base}&importToken={saved['token']}"
+    shortcut_url = f"{solvepad_url}?server={base}&packId={saved['pack_id']}"
     return {
         **saved,
         "open_url": solvepad_url,
         "solvepad_url": solvepad_url,
         "import_url": solvepad_url,
         "legacy_import_url": legacy_import_url,
+        "shortcut_url": shortcut_url,
+        "validation": validation,
         "program": "SolvePad",
-        "message": "Saved and registered as type=problem_pack. It appears in SolvePad's main repository list; links are only shortcuts.",
+        "message": "Saved and registered as type=problem_pack. It appears in SolvePad's main repository list; links are only shortcuts. Use replace_pack_id/replace_source_id for corrections.",
     }
 
 
@@ -1870,13 +1909,14 @@ def list_problem_packs_endpoint(subject: str = Query(default="")):
     for item in packs:
         token = item.get("token", "")
         pack_id = item.get("pack_id", "")
-        item["solvepad_url"] = f"{PUBLIC_BASE_URL}/static/solvepad/index.html"
+        item["solvepad_url"] = _public_url("/static/solvepad/index.html")
         item["open_url"] = item["solvepad_url"]
         item["device_save_mode"] = "optional"
+        base = _public_base_url()
         if token:
-            item["legacy_import_url"] = f"{PUBLIC_BASE_URL}/static/solvepad/index.html?server={PUBLIC_BASE_URL}&importToken={token}"
+            item["legacy_import_url"] = f"{item['solvepad_url']}?server={base}&importToken={token}"
         if pack_id:
-            item["shortcut_url"] = f"{PUBLIC_BASE_URL}/static/solvepad/index.html?server={PUBLIC_BASE_URL}&packId={pack_id}"
+            item["shortcut_url"] = f"{item['solvepad_url']}?server={base}&packId={pack_id}"
     return {"problem_packs": packs}
 
 
@@ -1957,7 +1997,7 @@ def generate_calculator(payload: CalculatorBlueprintSave):
     validation = validate_blueprint(blueprint).as_dict()
     generated = generate_txt_files(blueprint).as_dict()
     storage_mode = (payload.storage_mode or "device").strip().lower()
-    studio_url = f"{PUBLIC_BASE_URL}/static/casio/index.html"
+    studio_url = _public_url("/static/casio/index.html")
 
     if storage_mode != "server":
         local_project_id = payload.replace_calculator_project_id or f"local-calc-{re.sub(r'[^0-9A-Za-z가-힣_-]+', '-', (payload.title or 'casio-prgm-project')).strip('-') or 'project'}"
@@ -1978,7 +2018,7 @@ def generate_calculator(payload: CalculatorBlueprintSave):
             "studio_url": studio_url,
             "open_url": studio_url,
             "casio_url": studio_url,
-            "download_url": f"{PUBLIC_BASE_URL}/calculator/generate.zip",
+            "download_url": _public_url("/calculator/generate.zip"),
             "program": "CASIO PRGM Studio",
             "message": "Generated for device/local storage. It is not registered in server sources unless storage_mode='server'.",
         }
@@ -2001,12 +2041,12 @@ def generate_calculator(payload: CalculatorBlueprintSave):
         "storage_mode": "server",
         "validation": validation,
         "generated": generated,
-        "manual_url": f"{PUBLIC_BASE_URL}/calculator/projects/{project_id}/manual",
+        "manual_url": _public_url(f"/calculator/projects/{project_id}/manual"),
         "studio_url": studio_url,
         "open_url": studio_url,
         "casio_url": studio_url,
         "shortcut_url": shortcut_url,
-        "download_url": f"{PUBLIC_BASE_URL}/calculator/projects/{project_id}/download.zip",
+        "download_url": _public_url(f"/calculator/projects/{project_id}/download.zip"),
         "program": "CASIO PRGM Studio",
         "message": "Saved to server because storage_mode='server'. Device/local storage is the default mode.",
     }

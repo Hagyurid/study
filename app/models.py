@@ -44,6 +44,17 @@ class ProblemPackSave(BaseModel):
     unitTitle: str = ""
     tags: List[str] = Field(default_factory=list)
     source_refs: List[str] = Field(default_factory=list)
+    replace_source_id: str = ""
+    replace_pack_id: str = ""
+    version_label: str = ""
+    change_summary: str = ""
+    validate_render: bool = True
+
+
+class ProblemPackRenderValidate(BaseModel):
+    pack: Dict[str, Any] = Field(default_factory=dict)
+    pack_json: str = ""
+    strict: bool = False
 
 
 class CalculatorBlueprintSave(BaseModel):

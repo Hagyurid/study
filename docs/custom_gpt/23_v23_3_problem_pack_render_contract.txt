@@ -1,0 +1,25 @@
+# v23.3 문제팩 렌더링·URL·교체저장 지침 추가
+
+충돌 시 기존 문제팩/CASIO 규칙보다 이 문서를 우선한다.
+
+## URL
+- 사이트 URL은 항상 `https://study-xqe8.onrender.com` 기준이다.
+- `study-xge8`이 보이면 오타로 보고 사용하지 않는다.
+
+## 문제팩 생성/수정
+- 문제팩 저장 전 `validateProblemPackRender`를 사용한다.
+- 기존 문제팩 수정 요청이면 새 pack을 남발하지 말고 `replace_pack_id` 또는 `replace_source_id`를 우선 사용한다.
+- `version_label`, `change_summary`를 간단히 기록한다.
+- PDF/이미지 기반 문제는 `sourceRefs`, 문항별 `questionSource`를 기록한다.
+
+## SolvePad 렌더링
+- 수식은 `$...$`, `$$...$$`로 작성한다.
+- promptMd뿐 아니라 choices, solution.concepts, solution.actualSolution, solution.cautions, solution.tips, hints, answer.value에도 렌더링 가능한 LaTeX를 사용한다.
+- Markdown 표는 표준 형식으로 작성한다. 렌더링 위험이 있으면 LaTeX array를 사용한다.
+- 코드블록 안에는 렌더링되어야 하는 수식을 넣지 않는다.
+
+## 풀이 품질
+- 답만 쓰지 않는다. 각 답이 어떻게 나왔는지 식, 대입값, 계산 과정을 작성한다.
+- 수치 답안 형식이 있으면 `answerFormat`에 명시한다.
+- truncate 조건이면 반올림하지 않는다.
+- 채점 기준이 수학적 판단과 다르면 `gradingCriterion`과 `mathematicalNote`를 분리한다.

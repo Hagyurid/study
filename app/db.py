@@ -116,6 +116,20 @@ def init_db() -> None:
                 created_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS problem_pack_versions (
+                id TEXT PRIMARY KEY,
+                pack_id TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                source_id TEXT NOT NULL DEFAULT '',
+                title TEXT NOT NULL DEFAULT '',
+                pack_json TEXT NOT NULL DEFAULT '{}',
+                version_label TEXT NOT NULL DEFAULT '',
+                change_summary TEXT NOT NULL DEFAULT '',
+                render_warnings TEXT NOT NULL DEFAULT '[]',
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_problem_pack_versions_pack ON problem_pack_versions(pack_id, version);
+
             CREATE TABLE IF NOT EXISTS calculator_blueprints (
                 id TEXT PRIMARY KEY,
                 title TEXT NOT NULL,
@@ -226,6 +240,10 @@ def init_db() -> None:
         _ensure_column(db, "problem_packs", "exam_set_id", "TEXT NOT NULL DEFAULT ''")
         _ensure_column(db, "problem_packs", "exam_set_title", "TEXT NOT NULL DEFAULT ''")
         _ensure_column(db, "problem_packs", "question_count", "INTEGER NOT NULL DEFAULT 0")
+        _ensure_column(db, "problem_packs", "version", "INTEGER NOT NULL DEFAULT 1")
+        _ensure_column(db, "problem_packs", "version_label", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(db, "problem_packs", "change_summary", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(db, "problem_packs", "render_warnings", "TEXT NOT NULL DEFAULT '[]'")
         _ensure_column(db, "calculator_blueprints", "manual_markdown", "TEXT NOT NULL DEFAULT ''")
         _ensure_column(db, "calculator_blueprints", "manual_source_id", "TEXT NOT NULL DEFAULT ''")
         _ensure_column(db, "calculator_blueprints", "analysis_markdown", "TEXT NOT NULL DEFAULT ''")
@@ -1664,6 +1682,124 @@ def _pack_source_refs(pack: Dict[str, Any], source_refs: Optional[List[str]] = N
     return [str(item) for item in values if str(item or "").strip()]
 
 
+
+LATEX_UNSUPPORTED_MACROS = [
+    "\\xrightleftharpoons", "\\xleftrightarrow", "\\chemfig", "\\ce{", "\\pu{",
+]
+
+
+def _iter_pack_text_fields(pack: Dict[str, Any]):
+    if not isinstance(pack, dict):
+        return
+    for field in ["description", "instructions"]:
+        if isinstance(pack.get(field), str):
+            yield f"pack.{field}", pack.get(field) or ""
+    questions = pack.get("questions") or []
+    if not isinstance(questions, list):
+        return
+    for qi, q in enumerate(questions, 1):
+        if not isinstance(q, dict):
+            continue
+        prefix = f"questions[{qi}]"
+        for field in ["promptMd", "title", "section"]:
+            if isinstance(q.get(field), str):
+                yield f"{prefix}.{field}", q.get(field) or ""
+        choices = q.get("choices") or []
+        if isinstance(choices, list):
+            for ci, c in enumerate(choices, 1):
+                if isinstance(c, dict) and isinstance(c.get("text"), str):
+                    yield f"{prefix}.choices[{ci}].text", c.get("text") or ""
+        solution = q.get("solution") or {}
+        if isinstance(solution, dict):
+            for key in ["concepts", "actualSolution", "cautions", "tips"]:
+                values = solution.get(key) or []
+                if isinstance(values, str):
+                    yield f"{prefix}.solution.{key}", values
+                elif isinstance(values, list):
+                    for si, value in enumerate(values, 1):
+                        if isinstance(value, str):
+                            yield f"{prefix}.solution.{key}[{si}]", value
+        hints = q.get("hints") or []
+        if isinstance(hints, list):
+            for hi, value in enumerate(hints, 1):
+                if isinstance(value, str):
+                    yield f"{prefix}.hints[{hi}]", value
+        answer = q.get("answer") or {}
+        if isinstance(answer, dict):
+            if isinstance(answer.get("value"), str):
+                yield f"{prefix}.answer.value", answer.get("value") or ""
+        assets = q.get("assets") or []
+        if isinstance(assets, list):
+            for ai, a in enumerate(assets, 1):
+                if isinstance(a, dict) and isinstance(a.get("description"), str):
+                    yield f"{prefix}.assets[{ai}].description", a.get("description") or ""
+
+
+def _has_markdown_table(text: str) -> bool:
+    lines = [line.strip() for line in str(text or "").splitlines()]
+    for i in range(len(lines) - 1):
+        if "|" in lines[i] and re.match(r"^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$", lines[i + 1] or ""):
+            return True
+    return False
+
+
+def validate_problem_pack_render(pack: Dict[str, Any], strict: bool = False) -> Dict[str, Any]:
+    """Heuristic render-safety validation for SolvePad problem packs."""
+    warnings: List[Dict[str, Any]] = []
+    errors: List[Dict[str, Any]] = []
+
+    def add(code: str, field: str, message: str, severity: str = "warning") -> None:
+        item = {"code": code, "field": field, "message": message, "severity": severity}
+        if severity == "error":
+            errors.append(item)
+        else:
+            warnings.append(item)
+
+    if not isinstance(pack, dict):
+        return {"ok": False, "warnings": [], "errors": [{"code": "ERR_PACK_OBJECT", "field": "pack", "message": "pack must be an object", "severity": "error"}]}
+    if not pack.get("packId") and not pack.get("pack_id"):
+        add("ERR_PACK_ID", "pack.packId", "packId is required.", "error")
+    if not isinstance(pack.get("questions"), list) or not pack.get("questions"):
+        add("ERR_QUESTIONS", "pack.questions", "questions must be a non-empty array.", "error")
+
+    for field, text in _iter_pack_text_fields(pack):
+        raw = str(text or "")
+        if raw.count("$$") % 2:
+            add("WARN_LATEX_DELIMITER", field, "Odd number of $$ delimiters may break block math rendering.")
+        for macro in LATEX_UNSUPPORTED_MACROS:
+            if macro in raw:
+                add("WARN_LATEX_MACRO", field, f"Unsupported or risky LaTeX macro detected: {macro}")
+        if _has_markdown_table(raw):
+            add("INFO_MARKDOWN_TABLE", field, "Markdown table detected. SolvePad v23.3 renders tables; if a device still shows raw |---|, convert to LaTeX array.", "info")
+        if "|---" in raw or "---|" in raw:
+            add("INFO_TABLE_SEPARATOR", field, "Markdown table separator detected. Verify rendered table in SolvePad.", "info")
+        for match in re.finditer(r"```[\s\S]*?```", raw):
+            block = match.group(0)
+            if "$" in block or "\\begin" in block:
+                add("WARN_CODEBLOCK_FORMULA", field, "Formula inside code block will not render as math.")
+        if "\\begin" in raw and not ("$$" in raw or "\\[" in raw):
+            add("WARN_BEGIN_OUTSIDE_MATH", field, "\\begin appears outside display math delimiters.")
+
+    questions = pack.get("questions") or []
+    if isinstance(questions, list):
+        for qi, q in enumerate(questions, 1):
+            if not isinstance(q, dict):
+                add("ERR_QUESTION_OBJECT", f"questions[{qi}]", "Each question must be an object.", "error")
+                continue
+            ans_fmt = q.get("answerFormat") or pack.get("answerFormat")
+            if ans_fmt and isinstance(ans_fmt, dict):
+                if ans_fmt.get("type") == "decimal" and ans_fmt.get("roundingMode") == "truncate":
+                    sol = q.get("solution") or {}
+                    actual = "\n".join(sol.get("actualSolution") or []) if isinstance(sol, dict) and isinstance(sol.get("actualSolution"), list) else ""
+                    if "=" not in actual:
+                        add("WARN_NO_DERIVATION", f"questions[{qi}].solution.actualSolution", "Numeric/truncate answer should include formula, substitution, and truncation steps.")
+            if q.get("gradingCriterion") and not q.get("mathematicalNote"):
+                add("INFO_GRADING_NOTE", f"questions[{qi}].mathematicalNote", "gradingCriterion exists. Add mathematicalNote if mathematical answer and quiz criterion differ.", "info")
+
+    ok = not errors and (not strict or not any(w.get("severity") == "warning" for w in warnings))
+    return {"ok": ok, "warning_count": len(warnings), "error_count": len(errors), "warnings": warnings, "errors": errors}
+
+
 def _problem_pack_text(title: str, pack_id: str, pack: Dict[str, Any], subject: str, unit_number: str, unit_title: str, tags: List[str], source_refs: List[str]) -> str:
     question_count = len(pack.get("questions") or []) if isinstance(pack.get("questions"), list) else 0
     return "\n".join([
@@ -1694,8 +1830,61 @@ def _pack_exam_set_title(pack: Dict[str, Any]) -> str:
     meta = pack.get("metadata", {}) if isinstance(pack, dict) else {}
     return str(pack.get("examSetTitle") or pack.get("exam_set_title") or meta.get("examSetTitle") or meta.get("exam_set_title") or "").strip()
 
-def save_problem_pack(title: str, pack: Dict[str, Any], subject: str = "", unit_number: str = "", unit_title: str = "", tags: Optional[List[str]] = None, source_refs: Optional[List[str]] = None) -> Dict[str, Any]:
-    pack_id = pack.get("packId") or pack.get("pack_id") or make_id("pack")
+def _next_problem_pack_version(db: sqlite3.Connection, pack_id: str) -> int:
+    current = db.execute("SELECT version FROM problem_packs WHERE id=?", (pack_id,)).fetchone()
+    if current:
+        return int(current["version"] or 1) + 1
+    latest = db.execute("SELECT MAX(version) AS v FROM problem_pack_versions WHERE pack_id=?", (pack_id,)).fetchone()
+    return int((latest or {}).get("v") or 0) + 1
+
+
+def _archive_problem_pack_version(db: sqlite3.Connection, row: sqlite3.Row, change_summary: str = "") -> None:
+    if not row:
+        return
+    version = int(row["version"] if "version" in row.keys() else 1 or 1)
+    db.execute(
+        """
+        INSERT INTO problem_pack_versions(id,pack_id,version,source_id,title,pack_json,version_label,change_summary,render_warnings,created_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            make_id("ppv"),
+            row["id"],
+            version,
+            row["source_id"] if "source_id" in row.keys() else "",
+            row["title"],
+            row["pack_json"],
+            row["version_label"] if "version_label" in row.keys() else "",
+            change_summary or (row["change_summary"] if "change_summary" in row.keys() else "replaced"),
+            row["render_warnings"] if "render_warnings" in row.keys() else "[]",
+            row["created_at"],
+        ),
+    )
+
+
+def _find_problem_pack_by_source_id(db: sqlite3.Connection, source_id: str) -> Optional[sqlite3.Row]:
+    if not source_id:
+        return None
+    return db.execute("SELECT * FROM problem_packs WHERE source_id=?", (source_id,)).fetchone()
+
+
+def save_problem_pack(
+    title: str,
+    pack: Dict[str, Any],
+    subject: str = "",
+    unit_number: str = "",
+    unit_title: str = "",
+    tags: Optional[List[str]] = None,
+    source_refs: Optional[List[str]] = None,
+    replace_source_id: str = "",
+    replace_pack_id: str = "",
+    version_label: str = "",
+    change_summary: str = "",
+    render_warnings: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    requested_pack_id = str(replace_pack_id or "").strip()
+    pack_id = requested_pack_id or pack.get("packId") or pack.get("pack_id") or make_id("pack")
+    pack["packId"] = pack_id
     token = secrets.token_urlsafe(16)
     subject = _pack_subject(pack, subject)
     unit_number = _pack_unit_number(pack, unit_number)
@@ -1705,12 +1894,30 @@ def save_problem_pack(title: str, pack: Dict[str, Any], subject: str = "", unit_
     exam_set_id = _pack_exam_set_id(pack)
     exam_set_title = _pack_exam_set_title(pack)
     question_count = len(pack.get("questions", [])) if isinstance(pack.get("questions"), list) else 0
+    render_warnings = render_warnings or []
+    render_warnings_json = json.dumps(render_warnings, ensure_ascii=False)
 
     old_source_id = ""
+    version = 1
     with conn() as db:
-        old = db.execute("SELECT source_id FROM problem_packs WHERE id=?", (pack_id,)).fetchone()
+        old = None
+        if requested_pack_id:
+            old = db.execute("SELECT * FROM problem_packs WHERE id=?", (requested_pack_id,)).fetchone()
+        if not old and replace_source_id:
+            old = _find_problem_pack_by_source_id(db, replace_source_id)
+            if old:
+                pack_id = old["id"]
+                pack["packId"] = pack_id
+        if not old:
+            old = db.execute("SELECT * FROM problem_packs WHERE id=?", (pack_id,)).fetchone()
         if old:
             old_source_id = old["source_id"] or ""
+            version = _next_problem_pack_version(db, pack_id)
+            _archive_problem_pack_version(db, old, change_summary or "replaced by saveProblemPack")
+        elif replace_source_id:
+            old_source_id = replace_source_id
+            version = 1
+
     if old_source_id:
         try:
             delete_source(old_source_id)
@@ -1728,12 +1935,12 @@ def save_problem_pack(title: str, pack: Dict[str, Any], subject: str = "", unit_
     with conn() as db:
         db.execute(
             """
-            INSERT OR REPLACE INTO problem_packs(id,title,token,pack_json,created_at,source_id,subject,unit_number,unit_title,tags,source_refs,exam_set_id,exam_set_title,question_count)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            INSERT OR REPLACE INTO problem_packs(id,title,token,pack_json,created_at,source_id,subject,unit_number,unit_title,tags,source_refs,exam_set_id,exam_set_title,question_count,version,version_label,change_summary,render_warnings)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
-            (pack_id, title, token, json.dumps(pack, ensure_ascii=False), now(), source_id, subject, unit_number, unit_title, json.dumps(tags, ensure_ascii=False), json.dumps(source_refs, ensure_ascii=False), exam_set_id, exam_set_title, question_count),
+            (pack_id, title, token, json.dumps(pack, ensure_ascii=False), now(), source_id, subject, unit_number, unit_title, json.dumps(tags, ensure_ascii=False), json.dumps(source_refs, ensure_ascii=False), exam_set_id, exam_set_title, question_count, version, version_label, change_summary, render_warnings_json),
         )
-    return {"pack_id": pack_id, "token": token, "source_id": source_id, "source_type": "problem_pack", "subject": subject, "unitNumber": unit_number, "unitTitle": unit_title, "examSetId": exam_set_id, "examSetTitle": exam_set_title, "question_count": question_count}
+    return {"pack_id": pack_id, "token": token, "source_id": source_id, "source_type": "problem_pack", "subject": subject, "unitNumber": unit_number, "unitTitle": unit_title, "examSetId": exam_set_id, "examSetTitle": exam_set_title, "question_count": question_count, "version": version, "version_label": version_label, "change_summary": change_summary, "render_warnings": render_warnings}
 
 
 
@@ -1756,6 +1963,10 @@ def get_problem_pack_by_id(pack_id: str) -> Optional[Dict[str, Any]]:
         "examSetTitle": data.get("exam_set_title", "") or _pack_exam_set_title(pack),
         "question_count": int(data.get("question_count") or 0),
         "created_at": data.get("created_at", ""),
+        "version": int(data.get("version") or 1),
+        "version_label": data.get("version_label", ""),
+        "change_summary": data.get("change_summary", ""),
+        "render_warnings": _artifact_list(data.get("render_warnings", "[]")),
     }
 
 def get_problem_pack_by_token(token: str) -> Optional[Dict[str, Any]]:
@@ -1794,6 +2005,10 @@ def list_problem_packs(subject: str = "") -> List[Dict[str, Any]]:
             "tags": _artifact_list(data.get("tags", "[]")),
             "source_refs": _artifact_list(data.get("source_refs", "[]")),
             "created_at": data.get("created_at", ""),
+            "version": int(data.get("version") or 1),
+            "version_label": data.get("version_label", ""),
+            "change_summary": data.get("change_summary", ""),
+            "render_warnings": _artifact_list(data.get("render_warnings", "[]")),
         })
     return result
 
@@ -1998,6 +2213,10 @@ def list_calculator_blueprints(subject: str = "") -> List[Dict[str, Any]]:
             "analysis_source_id": data.get("analysis_source_id", ""),
             "program_source_ids": data.get("program_source_ids", []),
             "created_at": data.get("created_at", ""),
+            "version": int(data.get("version") or 1),
+            "version_label": data.get("version_label", ""),
+            "change_summary": data.get("change_summary", ""),
+            "render_warnings": _artifact_list(data.get("render_warnings", "[]")),
         })
     return result
 
