@@ -648,6 +648,179 @@ def _simple_markdown_html(markdown: str) -> str:
     return "\n".join(blocks)
 
 
+def _markdown_to_pdf_html_blocks(markdown: str) -> List[str]:
+    """Convert Markdown into small HTML blocks for server-side PDF pagination.
+
+    The file-manager direct PDF download cannot rely on browser print. This helper
+    keeps each Markdown block separate so PyMuPDF can paginate instead of shrinking
+    a whole long note onto one page.
+    """
+    lines = (markdown or "").replace("\r\n", "\n").split("\n")
+    blocks: List[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if not line.strip():
+            i += 1
+            continue
+        if line.startswith("```"):
+            lang = line.replace("```", "", 1).strip()
+            code: List[str] = []
+            i += 1
+            while i < len(lines) and not lines[i].startswith("```"):
+                code.append(lines[i])
+                i += 1
+            i += 1
+            block = _code_block_html("\n".join(code), lang)
+            if block:
+                blocks.append(block)
+            continue
+        slide_html = _slide_marker_html(line)
+        if slide_html:
+            blocks.append(slide_html)
+            i += 1
+            continue
+        img = re.match(r"^!\[([^\]]*)\]\((.+)\)(?:\{(?:width|size|scale)=(\d+)%?\})?$", line.strip())
+        if img:
+            scale_attrs = _image_figure_attrs(img.group(3) or 60)
+            blocks.append(f"<figure class='image-card'{scale_attrs}><img alt='{escape(img.group(1) or '이미지')}' src='{escape(img.group(2))}'/><figcaption>{escape(img.group(1) or '이미지')}</figcaption></figure>")
+            i += 1
+            continue
+        if _md_is_table_row(line) and i + 1 < len(lines) and _md_is_table_separator(lines[i + 1]):
+            table_lines = [line, lines[i + 1]]
+            i += 2
+            while i < len(lines) and _md_is_table_row(lines[i]):
+                table_lines.append(lines[i])
+                i += 1
+            blocks.append(_markdown_table_html(table_lines))
+            continue
+        heading = re.match(r"^(#{1,6})\s+(.+)$", line)
+        if heading:
+            level = len(heading.group(1))
+            blocks.append(f"<h{level}>{_inline_markdown_html(heading.group(2))}</h{level}>")
+            i += 1
+            continue
+        if re.match(r"^[-*]\s+", line):
+            items = []
+            while i < len(lines) and re.match(r"^[-*]\s+", lines[i]):
+                items.append("<li>" + _inline_markdown_html(re.sub(r"^[-*]\s+", "", lines[i])) + "</li>")
+                i += 1
+            blocks.append("<ul>" + "".join(items) + "</ul>")
+            continue
+        para = [line]
+        i += 1
+        while i < len(lines) and lines[i].strip() and not re.match(r"^(#{1,6})\s+", lines[i]) and not re.match(r"^[-*]\s+", lines[i]) and not lines[i].startswith("```") and not re.match(r"^!\[", lines[i].strip()) and not _parse_slide_marker(lines[i]) and not (_md_is_table_row(lines[i]) and i + 1 < len(lines) and _md_is_table_separator(lines[i + 1])):
+            para.append(lines[i])
+            i += 1
+        blocks.append("<p>" + _inline_markdown_html("\n".join(para)).replace("\n", "<br/>") + "</p>")
+    return blocks
+
+
+def _pdf_export_css() -> str:
+    return """
+    body { font-family: sans-serif; font-size: 10.5pt; line-height: 1.48; color: #111827; }
+    h1 { font-size: 18pt; margin: 0 0 8pt; }
+    h2 { font-size: 14pt; margin: 12pt 0 5pt; }
+    h3 { font-size: 12pt; margin: 10pt 0 4pt; }
+    h4, h5, h6 { font-size: 10.5pt; margin: 8pt 0 3pt; }
+    p { margin: 0 0 7pt; }
+    ul, ol { margin: 0 0 7pt 14pt; padding-left: 12pt; }
+    li { margin: 0 0 2pt; }
+    table { border-collapse: collapse; width: 100%; font-size: 8.8pt; margin: 5pt 0 8pt; }
+    th, td { border: 0.6pt solid #cbd5e1; padding: 4pt 5pt; vertical-align: top; }
+    th { background: #f1f5f9; font-weight: 700; }
+    pre, .flow-box { background: #f8fafc; border: 0.6pt solid #e2e8f0; padding: 6pt; white-space: pre-wrap; font-size: 8.8pt; }
+    code { background: #f1f5f9; padding: 1pt 2pt; }
+    .doc-meta { color: #64748b; font-size: 8.5pt; margin: 0 0 10pt; }
+    figure.image-card { margin: 8pt 0; text-align: left; }
+    figure.image-card img { max-width: 100%; height: auto; border-radius: 4pt; }
+    figure.image-card figcaption { font-size: 8pt; color: #64748b; margin-top: 3pt; }
+    mark { background: #fff39a; }
+    """
+
+
+def _pdf_new_page(doc: Any) -> Any:
+    return doc.new_page(width=595, height=842)
+
+
+def _pdf_insert_block(doc: Any, page: Any, y: float, html: str, css: str, *, margin_x: float = 42, bottom: float = 800) -> Tuple[Any, float]:
+    import fitz  # PyMuPDF
+    clean_html = (html or "").strip()
+    if not clean_html:
+        return page, y
+    rect = fitz.Rect(margin_x, y, 595 - margin_x, bottom)
+    spare, _scale = page.insert_htmlbox(rect, clean_html, css=css, scale_low=1)
+    if spare == -1:
+        page = _pdf_new_page(doc)
+        y = 42
+        rect = fitz.Rect(margin_x, y, 595 - margin_x, bottom)
+        spare, _scale = page.insert_htmlbox(rect, clean_html, css=css, scale_low=1)
+    if spare == -1:
+        # Last-resort safety for very large tables/images/code blocks: keep the block
+        # visible instead of failing the whole batch download.
+        spare, _scale = page.insert_htmlbox(rect, clean_html, css=css, scale_low=0.72)
+    if spare == -1:
+        fallback = "<pre>" + escape(_clean_markdown_inline_for_docx(re.sub(r"<[^>]+>", " ", clean_html))) + "</pre>"
+        page.insert_htmlbox(rect, fallback, css=css, scale_low=0.6)
+        return page, bottom
+    used = max(8, (bottom - y) - float(spare))
+    y = min(bottom, y + used + 6)
+    if y > bottom - 48:
+        page = _pdf_new_page(doc)
+        y = 42
+    return page, y
+
+
+def _study_notes_pdf_bytes(source_ids: List[str], title: str = "Study Notes") -> BytesIO:
+    try:
+        import fitz  # PyMuPDF
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"PDF export package is not installed. Add PyMuPDF to requirements.txt and redeploy: {exc}")
+    doc = fitz.open()
+    css = _pdf_export_css()
+    page = _pdf_new_page(doc)
+    y = 42
+    exported = 0
+    for index, source_id in enumerate(source_ids, 1):
+        note = get_source_markdown(source_id)
+        if not note:
+            continue
+        source = note.get("source") or {}
+        if exported:
+            page = _pdf_new_page(doc)
+            y = 42
+        exported += 1
+        heading = (
+            f"<h1>{index}. {escape(source.get('title') or source_id)}</h1>"
+            f"<div class='doc-meta'>과목: {escape(source.get('subject') or '미지정')} · "
+            f"유형: {escape(_source_type_label(source.get('source_type', '')))} · "
+            f"source_id: {escape(source.get('id') or source_id)}</div>"
+        )
+        page, y = _pdf_insert_block(doc, page, y, heading, css)
+        blocks = _markdown_to_pdf_html_blocks(note.get("markdown", "")) or ["<p>출력할 본문이 없습니다.</p>"]
+        for block in blocks:
+            page, y = _pdf_insert_block(doc, page, y, block, css)
+    if not exported:
+        page, y = _pdf_insert_block(doc, page, y, "<h1>출력 가능한 정리본이 없습니다</h1><p>파일 관리에서 GPT 생성 정리본 또는 문서형 자료를 선택하세요.</p>", css)
+    meta = doc.metadata or {}
+    meta["title"] = title or "Study Notes"
+    doc.set_metadata(meta)
+    out = BytesIO()
+    doc.save(out, garbage=4, deflate=True)
+    doc.close()
+    out.seek(0)
+    return out
+
+
+def _safe_pdf_bundle_title(ordered_ids: List[str], fallback: str = "study-notes-bundle") -> str:
+    if len(ordered_ids) == 1:
+        source = get_source(ordered_ids[0]) or {}
+        return str(source.get("title") or fallback).replace("/", "_")
+    subjects = sorted({str((get_source(sid) or {}).get("subject") or "").strip() for sid in ordered_ids if get_source(sid)})
+    subject = subjects[0] if len(subjects) == 1 and subjects[0] else "study-notes"
+    return f"{subject}-selected-notes-{len(ordered_ids)}files".replace("/", "_")
+
+
 def _clean_markdown_inline_for_docx(value: str) -> str:
     value = re.sub(r"`([^`]+)`", r"\1", value or "")
     value = re.sub(r"\*\*([^*]+)\*\*", r"\1", value)
@@ -1356,7 +1529,7 @@ def manage_sources_page(subject: str = Query(default=""), source_type: str = Que
         "업로드 파일 관리",
         f"""<section class='top'><div><h1>업로드 파일 관리</h1><p>자료를 필터링하고 여러 문서를 하나의 PDF 인쇄 화면으로 묶거나, SolvePad 문제팩을 문제지/해설지 양식으로 출력합니다.</p></div><div class='nav'><a class='btn secondary' href='/upload'>자료 업로드</a><a class='btn secondary' href='/'>홈</a></div></section>
 <section class='card'><form method='get' action='/sources/manage'><label>과목 필터</label><input name='subject' value='{escape(subject)}' placeholder='예: CRE'/><label>유형 필터</label><select name='source_type'><option value='' {'selected' if not source_type else ''}>전체 유형</option>{_options(source_type)}</select><label>액션 키</label><input name='action_key' type='password' value='{escape(action_key)}' placeholder='처음 한 번 입력하면 자동 저장'/><div class='keybox'><span class='key-status' data-key-status></span><button class='btn secondary' type='button' data-clear-key>저장된 키 지우기</button></div><div class='actions'><button type='submit'>적용</button><a class='btn secondary' href='/status?subject={escape(subject)}'>상태판/매핑</a><a class='btn secondary' href='/sources/manage?action_key={escape(action_key)}'>필터 초기화</a></div></form></section>
-<section class='card' style='margin-top:16px;overflow:auto'><form method='post' onsubmit="const checked=document.querySelectorAll('[data-source-check]:checked').length; const submitter=event.submitter; const action=submitter?.dataset.action||''; if(!checked && !submitter?.value){{alert('대상 자료를 선택하세요.'); return false;}} if(action.startsWith('print')){{return true;}} if(action==='rename'){{const name=this.querySelector('[name=new_name]').value.trim(); if(!name){{alert('새 표시 파일명을 입력하세요.'); return false;}} return confirm((checked || 1)+'개 자료의 표시 파일명을 변경할까요?');}} return confirm((checked || 1)+'개 자료를 삭제할까요?');"><input type='hidden' name='action_key' value='{escape(action_key)}'/><input type='hidden' name='subject' value='{escape(subject)}'/><input type='hidden' name='source_type' value='{escape(source_type)}'/><div class='pdfbar'><span class='label'>PDF 출력</span><button class='btn secondary' type='submit' data-action='print-docs' formaction='/sources/print-bundle' formtarget='_blank'>선택 문서 통합 PDF</button><button class='btn secondary' type='submit' data-action='print-questions' formaction='/sources/problem-packs/print?mode=questions' formtarget='_blank'>선택 문제지 PDF</button><button class='btn secondary' type='submit' data-action='print-solutions' formaction='/sources/problem-packs/print?mode=solutions' formtarget='_blank'>선택 해설지 PDF</button><button class='btn secondary' type='submit' data-action='print-calculator-manuals' formaction='/sources/calculator-manuals/print' formtarget='_blank'>선택 계산기 사용법 PDF</button><span class='hint'>매핑/단원 번호 기준으로 자동 정렬 후 브라우저 인쇄 화면에서 PDF로 저장합니다.</span></div><div class='actions' style='justify-content:space-between;align-items:center;margin-top:0;margin-bottom:12px'><label style='margin:0;display:flex;gap:8px;align-items:center'><input type='checkbox' id='selectAllSources' onclick="document.querySelectorAll('[data-source-check]').forEach(cb=>cb.checked=this.checked)"/> 전체 선택</label><div class='renamebar'><div><label style='margin:0 0 6px'>선택 파일명 변경</label><input name='new_name' placeholder='새 표시 파일명. 여러 개면 {{n}} 사용 가능'/><div class='hint'>예: 전재설 Week{{n}} 강의자료</div></div><div><label style='margin:0 0 6px'>변경 대상</label><select name='rename_target'><option value='title'>제목만</option><option value='original_name'>파일명 표시만</option><option value='both'>제목+파일명 표시</option></select></div><button class='btn secondary' type='submit' data-action='rename' formaction='/sources/rename-batch'>선택 파일명 변경</button><button class='danger' type='submit' data-action='delete' formaction='/sources/delete-batch'>선택 삭제</button></div></div><table><thead><tr><th>선택</th><th>과목</th><th>유형</th><th>제목/source_id</th><th>파일</th><th>생성일</th><th>작업</th></tr></thead><tbody>{table_rows}</tbody></table></form></section>""",
+<section class='card' style='margin-top:16px;overflow:auto'><form method='post' onsubmit="const checked=document.querySelectorAll('[data-source-check]:checked').length; const submitter=event.submitter; const action=submitter?.dataset.action||''; if(!checked && !submitter?.value){{alert('대상 자료를 선택하세요.'); return false;}} if(action.startsWith('print')||action==='download-pdf'){{return true;}} if(action==='rename'){{const name=this.querySelector('[name=new_name]').value.trim(); if(!name){{alert('새 표시 파일명을 입력하세요.'); return false;}} return confirm((checked || 1)+'개 자료의 표시 파일명을 변경할까요?');}} return confirm((checked || 1)+'개 자료를 삭제할까요?');"><input type='hidden' name='action_key' value='{escape(action_key)}'/><input type='hidden' name='subject' value='{escape(subject)}'/><input type='hidden' name='source_type' value='{escape(source_type)}'/><div class='pdfbar'><span class='label'>PDF 출력</span><button class='btn secondary' type='submit' data-action='print-docs' formaction='/sources/print-bundle' formtarget='_blank'>선택 문서 통합 PDF</button><button class='btn secondary' type='submit' data-action='download-pdf' formaction='/sources/download-bundle.pdf'>선택 정리본 PDF 바로 다운로드</button><button class='btn secondary' type='submit' data-action='print-questions' formaction='/sources/problem-packs/print?mode=questions' formtarget='_blank'>선택 문제지 PDF</button><button class='btn secondary' type='submit' data-action='print-solutions' formaction='/sources/problem-packs/print?mode=solutions' formtarget='_blank'>선택 해설지 PDF</button><button class='btn secondary' type='submit' data-action='print-calculator-manuals' formaction='/sources/calculator-manuals/print' formtarget='_blank'>선택 계산기 사용법 PDF</button><span class='hint'>통합 PDF는 인쇄용 화면, 바로 다운로드는 서버가 Markdown을 PDF로 변환해 저장합니다.</span></div><div class='actions' style='justify-content:space-between;align-items:center;margin-top:0;margin-bottom:12px'><label style='margin:0;display:flex;gap:8px;align-items:center'><input type='checkbox' id='selectAllSources' onclick="document.querySelectorAll('[data-source-check]').forEach(cb=>cb.checked=this.checked)"/> 전체 선택</label><div class='renamebar'><div><label style='margin:0 0 6px'>선택 파일명 변경</label><input name='new_name' placeholder='새 표시 파일명. 여러 개면 {{n}} 사용 가능'/><div class='hint'>예: 전재설 Week{{n}} 강의자료</div></div><div><label style='margin:0 0 6px'>변경 대상</label><select name='rename_target'><option value='title'>제목만</option><option value='original_name'>파일명 표시만</option><option value='both'>제목+파일명 표시</option></select></div><button class='btn secondary' type='submit' data-action='rename' formaction='/sources/rename-batch'>선택 파일명 변경</button><button class='danger' type='submit' data-action='delete' formaction='/sources/delete-batch'>선택 삭제</button></div></div><table><thead><tr><th>선택</th><th>과목</th><th>유형</th><th>제목/source_id</th><th>파일</th><th>생성일</th><th>작업</th></tr></thead><tbody>{table_rows}</tbody></table></form></section>""",
     )
 
 
@@ -1381,6 +1554,45 @@ def print_sources_bundle_endpoint(action_key: str = Form(default=""), source_ids
     if not parts:
         parts.append("<section class='print-doc'><h1>출력 가능한 문서가 없습니다</h1><p>정리본, 전사본, 계산기 문서 등 문서형 자료를 선택하세요.</p></section>")
     return _print_shell("통합 PDF 인쇄", "".join(parts), order_note)
+
+
+
+
+@app.get("/study/notes/{source_id}/download.pdf")
+def download_study_note_pdf(source_id: str):
+    note = get_source_markdown(source_id)
+    if not note:
+        raise HTTPException(status_code=404, detail="Study note not found")
+    title = str((note.get("source") or {}).get("title") or source_id).replace("/", "_")
+    out = _study_notes_pdf_bytes([source_id], title)
+    return StreamingResponse(out, media_type="application/pdf", headers=_safe_download_headers(title, ".pdf"))
+
+
+@app.post("/sources/download-bundle.pdf")
+def download_sources_bundle_pdf(action_key: str = Form(default=""), source_ids: Optional[List[str]] = Form(default=None)):
+    if not _is_authorized(action_key=action_key):
+        raise HTTPException(status_code=401, detail="Invalid action key")
+    ids = _selected_ids(source_ids)
+    if not ids:
+        raise HTTPException(status_code=400, detail="No sources selected")
+    ordered_ids, _order_note = _order_selected_sources_for_print(ids)
+    printable_ids: List[str] = []
+    skipped_problem_packs: List[str] = []
+    for source_id in ordered_ids:
+        source = get_source(source_id) or {}
+        if source.get("source_type") == "problem_pack":
+            skipped_problem_packs.append(source_id)
+            continue
+        if source:
+            printable_ids.append(source_id)
+    if not printable_ids:
+        raise HTTPException(status_code=400, detail="No printable Markdown documents selected. Use the problem-pack PDF buttons for problem_pack sources.")
+    title = _safe_pdf_bundle_title(printable_ids)
+    out = _study_notes_pdf_bytes(printable_ids, title)
+    headers = _safe_download_headers(title, ".pdf")
+    if skipped_problem_packs:
+        headers["X-Skipped-Problem-Packs"] = ",".join(skipped_problem_packs[:20])
+    return StreamingResponse(out, media_type="application/pdf", headers=headers)
 
 
 @app.post("/sources/problem-packs/print", response_class=HTMLResponse)
