@@ -1,0 +1,131 @@
+diff --git a/app/main.py b/app/main.py
+index 1328986..89abcde 100644
+--- a/app/main.py
++++ b/app/main.py
+@@ -9,7 +9,6 @@ import shutil
+ import tempfile
+ import zipfile
+-import base64
+ import re
+ import json
+
+@@ -65,6 +64,19 @@ def _image_figure_attrs(scale: Any = 100) -> str:
+     return f" data-image-scale='{normalized}' style='width:{normalized}%;'"
+
+
++def _slide_render_path(source_id: str, page: int = 1, zoom: float = 2.0) -> str:
++    safe_source = quote(str(source_id or "").strip())
++    page = max(1, int(page or 1))
++    zoom = min(4.0, max(0.5, float(zoom or 2.0)))
++    return f"/slides/render.png?source_id={safe_source}&page={page}&zoom={zoom:g}"
++
++
++def _get_slide_render_target(source_id: str, page: int = 1, zoom: float = 2.0) -> Tuple[Dict[str, Any], Path, int, float]:
++    source = get_source(source_id)
++    if not source:
++        raise HTTPException(status_code=404, detail="Source not found")
++    stored_path = Path(source.get("stored_path") or "")
++    if not stored_path.exists():
++        raise HTTPException(status_code=404, detail="Stored file not found")
++    suffix = stored_path.suffix.lower()
++    if suffix != ".pdf" and "pdf" not in (source.get("mime_type") or "").lower():
++        raise HTTPException(status_code=400, detail="Slide image rendering currently supports PDF lecture slides only")
++    page = max(1, int(page or 1))
++    zoom = min(4.0, max(0.5, float(zoom or 2.0)))
++    return source, stored_path, page, zoom
++
++
+ def _normalize_note_markdown_artifacts(markdown: str) -> str:
+     text = str(markdown or "").replace("\r\n", "\n")
+     # Normalize broken/escaped HTML line-break artifacts that otherwise render as literal '< br >'.
+@@ -282,7 +294,7 @@ def _parse_slide_marker(line: str) -> Optional[dict]:
+     size = _normalize_image_scale(attrs.get("size") or attrs.get("scale") or attrs.get("width") or 100)
+     return {"source_id": source_id, "page": page, "zoom": zoom, "caption": caption, "size": size}
+
+-@lru_cache(maxsize=24)
+-def _render_pdf_page_png_base64(stored_path: str, mtime_ns: int, page: int, zoom: float) -> Dict[str, Any]:
++@lru_cache(maxsize=6)
++def _render_pdf_page_png_bytes(stored_path: str, mtime_ns: int, page: int, zoom: float) -> Dict[str, Any]:
+     try:
+         import fitz  # PyMuPDF
+     except Exception:
+@@ -295,8 +307,7 @@ def _render_pdf_page_png_base64(stored_path: str, mtime_ns: int, page: int, zoo
+                 raise HTTPException(status_code=400, detail=f"Page out of range. This PDF has {len(doc)} pages.")
+             pdf_page = doc[page - 1]
+             matrix = fitz.Matrix(zoom, zoom)
+             pix = pdf_page.get_pixmap(matrix=matrix, alpha=False)
+             png = pix.tobytes("png")
+-            encoded = base64.b64encode(png).decode("ascii")
+-            return {"page_count": len(doc), "png_base64": encoded, "data_url": "data:image/png;base64," + encoded}
++            return {"page_count": len(doc), "png_bytes": png}
+         finally:
+             doc.close()
+     except HTTPException:
+@@ -305,30 +316,43 @@ def _render_pdf_page_png_base64(stored_path: str, mtime_ns: int, page: int, zoo
+         raise HTTPException(status_code=500, detail=f"Failed to render slide page: {exc}")
+
+
+ def _render_slide_data(source_id: str, page: int = 1, zoom: float = 2.0) -> dict:
+-    source = get_source(source_id)
+-    if not source:
+-        raise HTTPException(status_code=404, detail="Source not found")
+-    stored_path = Path(source.get("stored_path") or "")
+-    if not stored_path.exists():
+-        raise HTTPException(status_code=404, detail="Stored file not found")
+-    suffix = stored_path.suffix.lower()
+-    if suffix != ".pdf" and "pdf" not in (source.get("mime_type") or "").lower():
+-        raise HTTPException(status_code=400, detail="Slide image rendering currently supports PDF lecture slides only")
+-    page = max(1, int(page or 1))
+-    zoom = min(4.0, max(0.5, float(zoom or 2.0)))
+-    stat = stored_path.stat()
+-    rendered = _render_pdf_page_png_base64(str(stored_path), int(stat.st_mtime_ns), page, zoom)
++    source, stored_path, page, zoom = _get_slide_render_target(source_id, page, zoom)
++    stat = stored_path.stat()
+     label = f"{source.get('title') or source.get('original_name') or source_id} p.{page}"
+     return {
+         "source_id": source_id,
+         "page": page,
+-        "page_count": rendered["page_count"],
++        "page_count": None,
+         "label": label,
+-        "data_url": rendered["data_url"],
+-        "png_base64": rendered["png_base64"],
++        "image_path": _slide_render_path(source_id, page, zoom) + f"&v={int(stat.st_mtime_ns)}",
+     }
++
++
++@app.get("/slides/render.png")
++def render_slide_png(
++    source_id: str = Query(...),
++    page: int = Query(default=1),
++    zoom: float = Query(default=2.0),
++):
++    source, stored_path, page, zoom = _get_slide_render_target(source_id, page, zoom)
++    stat = stored_path.stat()
++    rendered = _render_pdf_page_png_bytes(str(stored_path), int(stat.st_mtime_ns), page, zoom)
++    headers = {
++        "Cache-Control": "private, max-age=600",
++        "X-Slide-Source-Id": str(source.get("id") or source_id),
++        "X-Slide-Page": str(page),
++    }
++    return Response(content=rendered["png_bytes"], media_type="image/png", headers=headers)
+
+
+ def _slide_marker_html(line: str, render_image: bool = True) -> Optional[str]:
+     marker = _parse_slide_marker(line)
+     if not marker:
+         return None
+@@ -343,11 +367,11 @@ def _slide_marker_html(line: str, render_image: bool = True) -> Optional[str]:
+             "</figure>"
+         )
+     try:
+         data = _render_slide_data(marker["source_id"], marker["page"], marker["zoom"])
+         return (
+             f"<figure class='image-card slide-card'{attrs}>"
+-            f"<img alt='{escape(caption)}' src='{escape(data['data_url'])}'/>"
++            f"<img alt='{escape(caption)}' loading='lazy' src='{escape(data['image_path'])}'/>"
+             f"<figcaption>{escape(caption)}</figcaption>"
+             "</figure>"
+         )
+     except Exception as exc:
+         return (
