@@ -3,7 +3,7 @@ services:
     name: lecturenote-suite
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    startCommand: uvicorn app.main_patched:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: DATABASE_PATH
         value: /var/data/lecturenote_suite.sqlite3
