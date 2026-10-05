@@ -40,12 +40,13 @@ body.editing .lab{font-size:13px}
 body.brushing .stage{flex-basis:min(55dvh,520px)}
 .undoRow{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:9px}.undoRow button{border:0;border-radius:9px;padding:9px;background:#202020;color:#ddd;font-weight:750}
 .retouchModes{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin:4px 0 6px}.retouchModes button{border:0;border-radius:8px;padding:8px 2px;background:#1c1c1c;color:#888;font-size:10px;font-weight:750}.retouchModes button.on{background:#eee;color:#080808}
-</style></head><body><div class="wrap"><div class="top"><b>FLASH LOOK</b><div class="muted">Web V6.4 · integrated flash + retouch</div></div>
+.stage.paintTarget{touch-action:none;-webkit-user-select:none;user-select:none}.stage.paintTarget canvas{touch-action:none}
+</style></head><body><div class="wrap"><div class="top"><b>FLASH LOOK</b><div class="muted">Web V6.4.2 · iOS brush touch fix</div></div>
 <div class="stage"><canvas id="c"></canvas><span id="empty">사진을 선택하세요</span><button id="compare" class="compare" hidden>원본 보기</button></div><input id="file" type="file" accept="image/*" hidden><div class="toolbar"><button class="btn dark" id="pick">사진 선택</button><button class="btn" id="save" hidden>사진 저장</button></div>
 <div id="status" class="status">분석 시에만 AI를 로드합니다. 편집 화면에는 AI/ONNX를 로드하지 않습니다.</div>
 <div id="panel" class="panel hide"></div></div>
 <script type="module">
-const $=x=>document.getElementById(x),c=$('c'),gl=c.getContext('webgl',{alpha:false,antialias:false,preserveDrawingBuffer:false});
+const $=x=>document.getElementById(x),c=$('c'),stage=c.parentElement,gl=c.getContext('webgl',{alpha:false,antialias:false,preserveDrawingBuffer:false});
 let texImg,texCtl,texLocal=null,localData=null,localW=0,localH=0,localMode='flash',skinRef=[.72,.52,.44],raf=0,lastFrame=0,fullW=0,fullH=0,controlW=512,controlH=512,dragging=false,originalBlob=null,controlData=null,autoControlData=null,userMask=null,brushMode=false,brushErase=true,brushSize=.10,brushSoft=.72,brushStrength=.16,painting=false,lastBrushPoint=null,brushDirty=false,brushRAF=0,strokeBefore=null,undoStack=[],redoStack=[],saveTimer=0;c.addEventListener('webglcontextlost',e=>{e.preventDefault();$('status').textContent='GPU 메모리가 부족해 편집 화면을 정리했습니다. 페이지를 새로고침하면 저장된 Depth로 다시 열립니다.'});
 const preset={
  flashEV:1.0,ambientEV:0,backgroundEV:0,shadowFill:.22,highlightProtect:.45,backlightRecovery:0,flashHighlights:.12,flashWhites:.08,specular:.18,hardness:.35,
@@ -364,14 +365,46 @@ function scheduleSessionSave(){
 }
 function setBrushMode(on){
  brushMode=on;document.body.classList.toggle('brushing',on);painting=false;lastBrushPoint=null;
- c.style.touchAction=on?'none':'auto';maskPreview=on?true:maskPreview;
+ c.style.touchAction=on?'none':'auto';stage.style.touchAction=on?'none':'auto';stage.classList.toggle('paintTarget',on);maskPreview=on?true:maskPreview;
  $('compare').hidden=on;
  ui();queueRender();
 }
-c.addEventListener('pointerdown',e=>{if(!brushMode)return;e.preventDefault();painting=true;strokeBefore=new Float32Array(userMask);c.setPointerCapture?.(e.pointerId);lastBrushPoint={x:e.clientX,y:e.clientY};brushAt(e.clientX,e.clientY)});
-c.addEventListener('pointermove',e=>{if(!brushMode||!painting)return;e.preventDefault();const p={x:e.clientX,y:e.clientY};brushLine(lastBrushPoint,p);lastBrushPoint=p});
-const stopPaint=e=>{if(!brushMode||!painting)return;painting=false;lastBrushPoint=null;if(strokeBefore){pushUndo(strokeBefore);strokeBefore=null}if(brushDirty){brushDirty=false;rebuildSoftMask();uploadControl()}scheduleSessionSave()};
-c.addEventListener('pointerup',stopPaint);c.addEventListener('pointercancel',stopPaint);
+function pointOnCanvas(e){
+ const r=c.getBoundingClientRect();
+ return e.clientX>=r.left&&e.clientX<=r.right&&e.clientY>=r.top&&e.clientY<=r.bottom;
+}
+stage.addEventListener('pointerdown',e=>{
+ if(!brushMode||!pointOnCanvas(e))return;
+ e.preventDefault();painting=true;
+ if(localMode==='flash')strokeBefore=new Float32Array(userMask);
+ stage.setPointerCapture?.(e.pointerId);
+ lastBrushPoint={x:e.clientX,y:e.clientY};brushAt(e.clientX,e.clientY);
+},{passive:false});
+stage.addEventListener('pointermove',e=>{
+ if(!brushMode||!painting)return;
+ e.preventDefault();const p={x:e.clientX,y:e.clientY};brushLine(lastBrushPoint,p);lastBrushPoint=p;
+},{passive:false});
+const stopPaint=e=>{
+ if(!brushMode||!painting)return;painting=false;lastBrushPoint=null;
+ if(strokeBefore){pushUndo(strokeBefore);strokeBefore=null}
+ if(brushDirty){brushDirty=false;rebuildSoftMask();uploadControl()}
+ scheduleSessionSave();
+};
+stage.addEventListener('pointerup',stopPaint,{passive:false});
+stage.addEventListener('pointercancel',stopPaint,{passive:false});
+
+function touchToPointer(t){return {clientX:t.clientX,clientY:t.clientY}}
+stage.addEventListener('touchstart',e=>{
+ if(!brushMode||painting||!e.touches.length)return;
+ const p=touchToPointer(e.touches[0]);if(!pointOnCanvas(p))return;
+ e.preventDefault();painting=true;if(localMode==='flash')strokeBefore=new Float32Array(userMask);
+ lastBrushPoint={x:p.clientX,y:p.clientY};brushAt(p.clientX,p.clientY);
+},{passive:false});
+stage.addEventListener('touchmove',e=>{
+ if(!brushMode||!painting||!e.touches.length)return;e.preventDefault();
+ const p=touchToPointer(e.touches[0]),q={x:p.clientX,y:p.clientY};brushLine(lastBrushPoint,q);lastBrushPoint=q;
+},{passive:false});
+stage.addEventListener('touchend',e=>{if(painting)stopPaint(e)},{passive:false});
 
 function render(){
  raf=0;if(!texImg||!texCtl)return;
@@ -536,7 +569,7 @@ async function analyze(file){
  try{await pipe.dispose?.()}catch(_e){} pipe=null;mod=null;
  $('status').textContent='Depth 완료 · 편집 화면으로 전환 중…';
  await put({original:file,ow,oh,dw,dh,depth:d.buffer});
- location.replace(location.pathname+'?edit=1&v=64');
+ location.replace(location.pathname+'?edit=1&v=642');
 }
 async function savePhoto(){
  const btn=$('save'),old=btn.textContent,oldTex=texImg,oldW=c.width,oldH=c.height;
