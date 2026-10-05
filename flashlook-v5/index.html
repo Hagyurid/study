@@ -1,5 +1,5 @@
 <!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>FlashLook Web V5</title><style>
-*{box-sizing:border-box}body{margin:0;background:#080808;color:#eee;font:14px -apple-system,BlinkMacSystemFont,sans-serif}.wrap{max-width:720px;margin:auto;padding:18px}.top{padding:35px 0 16px}.top b{font-size:22px}.muted{color:#777;margin-top:5px}.stage{background:#111;border-radius:18px;overflow:hidden;min-height:340px;display:flex;align-items:center;justify-content:center}canvas{display:block;width:100%;height:auto}.btn{width:100%;border:0;border-radius:14px;padding:15px;margin-top:12px;font-weight:750;background:#fff;color:#000}.btn.dark{background:#1b1b1b;color:#eee;border:1px solid #303030}.panel{background:#121212;border-radius:16px;padding:14px;margin-top:12px}.actions{display:flex;gap:8px;margin-bottom:14px}.mini{flex:1;border:1px solid #303030;background:#1b1b1b;color:#eee;border-radius:11px;padding:11px 10px;font-weight:700}.row{padding:12px 0;border-top:1px solid #242424}.row:first-of-type{border-top:0}.lab{display:flex;align-items:center;justify-content:space-between;gap:10px;color:#ddd}.name{font-weight:700}.valuebox{display:flex;align-items:center;gap:8px}.reset{border:1px solid #343434;background:#1b1b1b;color:#aaa;border-radius:9px;padding:7px 9px;font-size:12px}.desc{color:#777;font-size:12px;line-height:1.45;margin:5px 0 7px}input[type=range]{width:100%;touch-action:pan-y}.status{color:#8a8a8a;line-height:1.45;margin:12px 2px}.hide{display:none}[hidden]{display:none!important}
+*{box-sizing:border-box}body{margin:0;background:#080808;color:#eee;font:14px -apple-system,BlinkMacSystemFont,sans-serif}.wrap{max-width:720px;margin:auto;padding:18px}.top{padding:35px 0 16px}.top b{font-size:22px}.muted{color:#777;margin-top:5px}.stage{background:#111;border-radius:18px;overflow:hidden;min-height:340px;display:flex;align-items:center;justify-content:center}canvas{display:block;width:100%;height:auto}.btn{width:100%;border:0;border-radius:14px;padding:15px;margin-top:12px;font-weight:750;background:#fff;color:#000}.btn.dark{background:#1b1b1b;color:#eee;border:1px solid #303030}.panel{background:#121212;border-radius:16px;padding:14px;margin-top:12px}.actions{display:flex;gap:8px;margin-bottom:14px}.mini{flex:1;border:1px solid #303030;background:#1b1b1b;color:#eee;border-radius:11px;padding:11px 10px;font-weight:700}.sectionTitle{position:sticky;top:0;z-index:2;margin:10px -2px 2px;padding:9px 4px 7px;background:#121212;color:#fff;font-size:12px;font-weight:800;border-bottom:1px solid #333}.sectionTitle:first-of-type{margin-top:0}.row{padding:12px 0;border-top:1px solid #242424}.row:first-of-type{border-top:0}.lab{display:flex;align-items:center;justify-content:space-between;gap:10px;color:#ddd}.name{font-weight:700}.valuebox{display:flex;align-items:center;gap:8px}.reset{border:1px solid #343434;background:#1b1b1b;color:#aaa;border-radius:9px;padding:7px 9px;font-size:12px}.desc{color:#777;font-size:12px;line-height:1.45;margin:5px 0 7px}input[type=range]{width:100%;touch-action:pan-y}.status{color:#8a8a8a;line-height:1.45;margin:12px 2px}.hide{display:none}[hidden]{display:none!important}
 .toolbar{display:flex;gap:8px}.toolbar .btn{flex:1}
 body.editing{overflow:hidden}
 body.editing .wrap{height:100dvh;max-width:720px;padding:8px 10px;display:flex;flex-direction:column;overflow:hidden}
@@ -20,28 +20,31 @@ body.editing .lab{font-size:12px}
 body.editing .reset{padding:5px 7px;font-size:11px}
 body.editing input[type=range]{margin:2px 0 0;height:24px}
 @media (max-height:700px){body.editing .stage{flex-basis:34dvh}}
-</style></head><body><div class="wrap"><div class="top"><b>FLASH LOOK</b><div class="muted">Web V5.5 · wide feather + strong edge shift</div></div>
+</style></head><body><div class="wrap"><div class="top"><b>FLASH LOOK</b><div class="muted">Web V5.6 · heavy edge blend + adjustment sections</div></div>
 <div class="stage"><canvas id="c"></canvas><span id="empty">사진을 선택하세요</span></div><input id="file" type="file" accept="image/*" hidden><div class="toolbar"><button class="btn dark" id="pick">사진 선택</button><button class="btn" id="save" hidden>사진 저장</button></div>
 <div id="status" class="status">분석 시에만 AI를 로드합니다. 편집 화면에는 AI/ONNX를 로드하지 않습니다.</div>
 <div id="panel" class="panel hide"></div></div>
 <script type="module">
 const $=x=>document.getElementById(x),c=$('c'),gl=c.getContext('webgl',{alpha:false,antialias:false,preserveDrawingBuffer:false});
 let texImg,texCtl,raf=0,lastFrame=0,fullW=0,fullH=0,controlW=512,controlH=512,dragging=false,originalBlob=null;c.addEventListener('webglcontextlost',e=>{e.preventDefault();$('status').textContent='GPU 메모리가 부족해 편집 화면을 정리했습니다. 페이지를 새로고침하면 저장된 Depth로 다시 열립니다.'});
-const preset={flash:1.0,ambient:1,hardness:.65,specular:.45,background:1,warmth:0,saturation:1,edgeBlend:.55,edgeShift:0,flashSaturation:1,flashContrast:1};
-const original={flash:0,ambient:1,hardness:0,specular:0,background:1,warmth:0,saturation:1,edgeBlend:0,edgeShift:0,flashSaturation:1,flashContrast:1};
+const preset={flash:1.0,ambient:1,hardness:.65,specular:.45,background:1,warmth:0,saturation:1,edgeBlend:.70,edgeShift:0,flashSaturation:1,flashContrast:1,brightness:0,contrast:1,hue:0};
+const original={flash:0,ambient:1,hardness:0,specular:0,background:1,warmth:0,saturation:1,edgeBlend:0,edgeShift:0,flashSaturation:1,flashContrast:1,brightness:0,contrast:1,hue:0};
 let vals={...preset};
 const controls=[
  ['flash','플래시 광량','Flash',0,2,'원본 위에 빛만 추가합니다. 이 슬라이더 자체는 어떤 영역도 어둡게 하지 않습니다.'],
  ['ambient','주변광','Ambient',.2,1.2,'원래 사진에 있던 빛의 양. 낮추면 플래시 사진처럼 주변이 어두워짐.'],
  ['hardness','빛의 경도','Hardness',0,1,'표면 각도에 따라 빛이 갈리는 정도. 높을수록 직광의 입체감이 강해짐.'],
- ['edgeBlend','경계 블렌딩','Edge Blend',0,1,'사진은 흐리지 않고 Depth 기반 플래시 경계만 주변으로 부드럽게 섞습니다.'],
+ ['edgeBlend','경계 블렌딩','Edge Blend',0,2,'Depth 기반 플래시 경계를 훨씬 넓고 강하게 섞습니다. 1 이상은 강한 블렌딩 영역입니다.'],
  ['edgeShift','경계 방향','Edge Direction',-2,2,'마이너스는 플래시 영역 안쪽으로, 플러스는 바깥쪽으로 이동합니다. 이전보다 이동 폭을 크게 잡았습니다.'],
  ['flashSaturation','플래시 영역 채도','Flash Saturation',0,1.8,'플래시가 실제로 더해지는 부분의 색감만 조절합니다.'],
  ['flashContrast','플래시 영역 대비','Flash Contrast',0.5,1.6,'플래시가 더해지는 부분의 대비만 조절합니다.'],
  ['specular','반사광','Specular',0,1.4,'피부·유리·금속처럼 반짝이는 부분의 하이라이트 강도.'],
  ['background','배경 밝기','Background',.25,1.15,'멀리 있는 배경의 밝기. 낮출수록 피사체와 배경 분리가 강해짐.'],
  ['warmth','색온도','WB',-1,1,'마이너스는 차갑게, 플러스는 따뜻하게 플래시 색을 조정.'],
- ['saturation','채도','Saturation',0,1.5,'사진 전체 색의 진한 정도. 1.00이 원본 채도.']
+ ['saturation','채도','Saturation',0,1.5,'사진 전체 색의 진한 정도. 1.00이 원본 채도.'],
+ ['brightness','일반 밝기','Brightness',-.5,.5,'최종 사진 전체 밝기를 조절합니다.'],
+ ['contrast','일반 대비','Contrast',.4,1.8,'최종 사진 전체 대비를 조절합니다.'],
+ ['hue','일반 색조','Hue',-1,1,'최종 사진 전체 색조를 회전합니다.']
 ];
 const DB='flashlook-web-v5';function db(){return new Promise((ok,no)=>{let q=indexedDB.open(DB,1);q.onupgradeneeded=()=>q.result.createObjectStore('s');q.onsuccess=()=>ok(q.result);q.onerror=()=>no(q.error)})}
 async function put(v){let d=await db();return new Promise((ok,no)=>{let t=d.transaction('s','readwrite');t.objectStore('s').put(v,'last');t.oncomplete=ok;t.onerror=()=>no(t.error)})}
@@ -51,7 +54,7 @@ const vs='attribute vec2 p;varying vec2 uv;void main(){uv=vec2((p.x+1.)*.5,1.-(p
 const fs=`precision mediump float;
 varying vec2 uv;
 uniform sampler2D im,ctl;
-uniform float flash,ambient,hardness,specular,background,warmth,saturation,edgeBlend,edgeShift,flashSaturation,flashContrast;
+uniform float flash,ambient,hardness,specular,background,warmth,saturation,edgeBlend,edgeShift,flashSaturation,flashContrast,brightness,contrast,hue;
 void main(){
  vec3 source=texture2D(im,uv).rgb;
  vec4 ctrl=texture2D(ctl,uv);
@@ -63,10 +66,14 @@ void main(){
  float signedDelta=nearSoft-nearRaw;
  float edgeDelta=abs(signedDelta);
  float edge=smoothstep(0.006,0.095,edgeDelta);
- float blendAmt=smoothstep(0.0,1.0,clamp(edgeBlend,0.0,1.0));
+ float blendCtl=clamp(edgeBlend,0.0,2.0);
+ float blendAmt=1.0-exp(-1.65*blendCtl);
+ float blendBoost=smoothstep(0.55,2.0,blendCtl);
 
  // Base feather plus signed inward/outward bias. No extra texture sample.
  float nearv=mix(nearRaw,nearSoft,blendAmt);
+ // High blend values deliberately flatten residual edge steps harder.
+ nearv=mix(nearv,nearSoft,blendBoost*0.72);
  float dir=clamp(edgeShift,-2.0,2.0);
  float shiftGain=(1.9+2.1*blendAmt);
  nearv=clamp(nearv + dir*edgeDelta*edge*shiftGain,0.0,1.0);
@@ -94,6 +101,16 @@ void main(){
 
  float specSafe=specBase*(1.0-edge*blendAmt*0.18);
  col+=vec3(1.0)*max(0.0,specSafe*specular*0.60);
+
+ // General adjustments: independent from flash-only controls.
+ col+=vec3(brightness);
+ col=(col-vec3(0.5))*contrast+vec3(0.5);
+ float Y=dot(col,vec3(0.299,0.587,0.114));
+ float I=dot(col,vec3(0.596,-0.275,-0.321));
+ float Q=dot(col,vec3(0.212,-0.523,0.311));
+ float ang=hue*1.5707963,cs=cos(ang),sn=sin(ang);
+ float I2=I*cs-Q*sn,Q2=I*sn+Q*cs;
+ col=vec3(Y+0.956*I2+0.621*Q2,Y-0.272*I2-0.647*Q2,Y-1.106*I2+1.703*Q2);
 
  col=col/(1.0+max(col-1.0,0.0)*0.55);
  gl_FragColor=vec4(clamp(col,0.0,1.0),1.0);
@@ -147,30 +164,24 @@ function makeControlMap(rgb,cw,ch,depth,dw,dh){
    out[i+3]=Math.round(Math.max(0,Math.min(1,spec))*255);
  }
 
- // Wider one-time feather: two cross passes on the 512px control map.
- // This makes the transition visibly wider without adding any runtime texture fetch.
- const soft1=new Float32Array(cw*ch);
- for(let y=0;y<ch;y++)for(let x=0;x<cw;x++){
-   const idx=y*cw+x;
-   const xm=Math.max(0,x-1),xp=Math.min(cw-1,x+1),ym=Math.max(0,y-1),yp=Math.min(ch-1,y+1);
-   soft1[idx]=
-     nearBuf[idx]*0.28+
-     nearBuf[y*cw+xm]*0.18+
-     nearBuf[y*cw+xp]*0.18+
-     nearBuf[ym*cw+x]*0.18+
-     nearBuf[yp*cw+x]*0.18;
+ // Heavy one-time feather: four cross passes on the 512px control map.
+ // Runtime texture sampling is unchanged; this work happens only once on editor entry.
+ let src=nearBuf;
+ let dst=new Float32Array(cw*ch);
+ for(let pass=0;pass<4;pass++){
+   for(let y=0;y<ch;y++)for(let x=0;x<cw;x++){
+     const idx=y*cw+x;
+     const xm=Math.max(0,x-1),xp=Math.min(cw-1,x+1),ym=Math.max(0,y-1),yp=Math.min(ch-1,y+1);
+     dst[idx]=
+       src[idx]*0.20+
+       src[y*cw+xm]*0.20+
+       src[y*cw+xp]*0.20+
+       src[ym*cw+x]*0.20+
+       src[yp*cw+x]*0.20;
+   }
+   if(pass<3){const tmp=src;src=dst;dst=tmp===nearBuf?new Float32Array(cw*ch):tmp;}
  }
- for(let y=0;y<ch;y++)for(let x=0;x<cw;x++){
-   const idx=y*cw+x;
-   const xm=Math.max(0,x-1),xp=Math.min(cw-1,x+1),ym=Math.max(0,y-1),yp=Math.min(ch-1,y+1);
-   const soft=
-     soft1[idx]*0.32+
-     soft1[y*cw+xm]*0.17+
-     soft1[y*cw+xp]*0.17+
-     soft1[ym*cw+x]*0.17+
-     soft1[yp*cw+x]*0.17;
-   out[idx*4+2]=Math.round(Math.max(0,Math.min(1,soft))*255);
- }
+ for(let i=0;i<cw*ch;i++)out[i*4+2]=Math.round(Math.max(0,Math.min(1,dst[i]))*255);
  return out;
 }
 function render(){
@@ -207,7 +218,16 @@ function ui(){
  q.appendChild(actions);
  $('resetAll').onclick=()=>applyValues(original);
  $('presetAll').onclick=()=>applyValues(preset);
+ const sections={
+   flash:'플래시 / 조명',
+   edgeBlend:'경계 보정',
+   flashSaturation:'플래시 영역 색감',
+   warmth:'일반 조절'
+ };
  for(const [k,n,en,min,max,desc]of controls){
+   if(sections[k]){
+     const h=document.createElement('div');h.className='sectionTitle';h.textContent=sections[k];q.appendChild(h);
+   }
    let r=document.createElement('div');r.className='row';
    r.innerHTML=`<div class="lab"><div><span class="name">${n}</span> <span style="color:#5f5f5f;font-size:11px">${en}</span></div><div class="valuebox"><span id="v_${k}">${vals[k].toFixed(2)}</span><button class="reset" type="button">원본</button></div></div><div class="desc">${desc}</div><input id="s_${k}" type="range" min="${min}" max="${max}" step=".01" value="${vals[k]}">`;
    let sl=r.querySelector('input'),reset=r.querySelector('.reset');
@@ -283,7 +303,7 @@ async function analyze(file){
  try{await pipe.dispose?.()}catch(_e){} pipe=null;mod=null;
  $('status').textContent='Depth 완료 · 편집 화면으로 전환 중…';
  await put({original:file,ow,oh,dw,dh,depth:d.buffer});
- location.replace(location.pathname+'?edit=1&v=55');
+ location.replace(location.pathname+'?edit=1&v=56');
 }
 async function savePhoto(){
  const btn=$('save'),old=btn.textContent,oldTex=texImg,oldW=c.width,oldH=c.height;
