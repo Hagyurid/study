@@ -21,3 +21,12 @@ npx eas-cli@latest build --platform ios --profile preview
 EAS가 iOS cloud build와 서명을 진행합니다.
 
 > 현재 커밋은 기반 앱입니다. Depth/relighting 네이티브 구현은 아직 연결 전이므로 웹 V4 알고리즘을 WebView로 감싸지 않습니다.
+
+## Cloud iPhone build
+EAS automatically downloads Apple's official DepthAnythingV2SmallF16P6 Core ML package during `eas-build-pre-install`. The model is not committed to this repository.
+
+Run from the project directory after authenticating Expo/Apple credentials:
+```
+npx eas-cli@latest build --platform ios --profile preview
+```
+The preview profile uses internal distribution for a registered iPhone.
