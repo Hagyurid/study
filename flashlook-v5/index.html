@@ -1,6 +1,6 @@
 <!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>FlashLook Web V5</title><style>
 *{box-sizing:border-box}body{margin:0;background:#080808;color:#eee;font:14px -apple-system,BlinkMacSystemFont,sans-serif}.wrap{max-width:720px;margin:auto;padding:18px}.top{padding:35px 0 16px}.top b{font-size:22px}.muted{color:#777;margin-top:5px}.stage{background:#111;border-radius:18px;overflow:hidden;min-height:340px;display:flex;align-items:center;justify-content:center}canvas{display:block;width:100%;height:auto}.btn{width:100%;border:0;border-radius:14px;padding:15px;margin-top:12px;font-weight:750;background:#fff;color:#000}.btn.dark{background:#1b1b1b;color:#eee;border:1px solid #303030}.panel{background:#121212;border-radius:16px;padding:14px;margin-top:12px}.actions{display:flex;gap:8px;margin-bottom:14px}.mini{flex:1;border:1px solid #303030;background:#1b1b1b;color:#eee;border-radius:11px;padding:11px 10px;font-weight:700}.row{padding:12px 0;border-top:1px solid #242424}.row:first-of-type{border-top:0}.lab{display:flex;align-items:center;justify-content:space-between;gap:10px;color:#ddd}.name{font-weight:700}.valuebox{display:flex;align-items:center;gap:8px}.reset{border:1px solid #343434;background:#1b1b1b;color:#aaa;border-radius:9px;padding:7px 9px;font-size:12px}.desc{color:#777;font-size:12px;line-height:1.45;margin:5px 0 7px}input[type=range]{width:100%;touch-action:pan-y}.status{color:#8a8a8a;line-height:1.45;margin:12px 2px}.hide{display:none}
-</style></head><body><div class="wrap"><div class="top"><b>FLASH LOOK</b><div class="muted">Web V5.1 · edge-protected control map</div></div>
+</style></head><body><div class="wrap"><div class="top"><b>FLASH LOOK</b><div class="muted">Web V5.1.2 · softened edge-protected control map</div></div>
 <div class="stage"><canvas id="c"></canvas><span id="empty">사진을 선택하세요</span></div><input id="file" type="file" accept="image/*" hidden><button class="btn dark" id="pick">사진 선택</button><button class="btn" id="save" hidden>사진 저장</button>
 <div id="status" class="status">분석 시에만 AI를 로드합니다. 편집 화면에는 AI/ONNX를 로드하지 않습니다.</div>
 <div id="panel" class="panel hide"></div></div>
@@ -35,18 +35,25 @@ void main(){
  float facing=ctrl.g;
  float protect=ctrl.b;
  float specBase=ctrl.a;
- float safeFacing=mix(facing,1.0,protect);
- float safeNear=mix(nearv,step(.5,nearv),protect*.72);
- float direct=(.16+.84*safeNear*safeNear)*mix(.55,safeFacing,hardness);
+
+ float p=protect*protect;
+ float safeFacing=mix(facing,1.0,p);
+ float safeNear=mix(nearv,0.5+(nearv-0.5)*0.25,p);
+
+ float direct=(0.16+0.84*safeNear*safeNear)*mix(0.55,safeFacing,hardness);
+ direct*=1.0-p*0.85;
+ float specSafe=specBase*(1.0-p*0.90);
+
  float bg=mix(background,1.0,safeNear);
  col*=ambient*bg;
- col+=col*direct*flash*.78;
- col+=vec3(1.0)*specBase*specular*.72*(1.0-protect*.55);
- col.r*=1.0+.09*warmth;
- col.b*=1.0-.09*warmth;
- float l=dot(col,vec3(.299,.587,.114));
+ col+=col*direct*flash*0.78;
+ col+=vec3(1.0)*specSafe*specular*0.72;
+
+ col.r*=1.0+0.09*warmth;
+ col.b*=1.0-0.09*warmth;
+ float l=dot(col,vec3(0.299,0.587,0.114));
  col=mix(vec3(l),col,saturation);
- col=col/(1.0+max(col-1.0,0.0)*.55);
+ col=col/(1.0+max(col-1.0,0.0)*0.55);
  gl_FragColor=vec4(clamp(col,0.0,1.0),1.0);
 }`;
 let pr=gl.createProgram();gl.attachShader(pr,shader(gl.VERTEX_SHADER,vs));gl.attachShader(pr,shader(gl.FRAGMENT_SHADER,fs));gl.linkProgram(pr);gl.useProgram(pr);const U={im:gl.getUniformLocation(pr,'im'),ctl:gl.getUniformLocation(pr,'ctl')};for(const k of Object.keys(vals))U[k]=gl.getUniformLocation(pr,k);let b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);let p=gl.getAttribLocation(pr,'p');gl.enableVertexAttribArray(p);gl.vertexAttribPointer(p,2,gl.FLOAT,false,0,0);
@@ -64,38 +71,64 @@ function controlTexture(w,h,data){
 function smoothstep(a,b,x){x=Math.max(0,Math.min(1,(x-a)/(b-a)));return x*x*(3-2*x)}
 function makeControlMap(rgb,cw,ch,depth,dw,dh){
  const out=new Uint8Array(cw*ch*4);
- const lum=(i)=>.299*rgb[i]+.587*rgb[i+1]+.114*rgb[i+2];
+ const protectBuf=new Float32Array(cw*ch);
+ const lum=(i)=>0.299*rgb[i]+0.587*rgb[i+1]+0.114*rgb[i+2];
+
  const dNearest=(x,y)=>{
-   const sx=Math.max(0,Math.min(dw-1,Math.round(x*(dw-1)/(cw-1))));
-   const sy=Math.max(0,Math.min(dh-1,Math.round(y*(dh-1)/(ch-1))));
+   const sx=Math.max(0,Math.min(dw-1,Math.round(x*(dw-1)/Math.max(1,cw-1))));
+   const sy=Math.max(0,Math.min(dh-1,Math.round(y*(dh-1)/Math.max(1,ch-1))));
    return depth[sy*dw+sx]/255;
  };
+
  const dLinear=(x,y)=>{
-   const fx=x*(dw-1)/(cw-1),fy=y*(dh-1)/(ch-1),x0=Math.floor(fx),y0=Math.floor(fy);
-   const x1=Math.min(dw-1,x0+1),y1=Math.min(dh-1,y0+1),tx=fx-x0,ty=fy-y0;
+   const fx=x*(dw-1)/Math.max(1,cw-1),fy=y*(dh-1)/Math.max(1,ch-1);
+   const x0=Math.floor(fx),y0=Math.floor(fy);
+   const x1=Math.min(dw-1,x0+1),y1=Math.min(dh-1,y0+1);
+   const tx=fx-x0,ty=fy-y0;
    const a=depth[y0*dw+x0]/255,b=depth[y0*dw+x1]/255,c=depth[y1*dw+x0]/255,d=depth[y1*dw+x1]/255;
    return (a*(1-tx)+b*tx)*(1-ty)+(c*(1-tx)+d*tx)*ty;
  };
+
  for(let y=0;y<ch;y++)for(let x=0;x<cw;x++){
-   const i=(y*cw+x)*4,xm=Math.max(0,x-1),xp=Math.min(cw-1,x+1),ym=Math.max(0,y-1),yp=Math.min(ch-1,y+1);
+   const i=(y*cw+x)*4;
+   const xm=Math.max(0,x-1),xp=Math.min(cw-1,x+1),ym=Math.max(0,y-1),yp=Math.min(ch-1,y+1);
    const il=(y*cw+xm)*4,ir=(y*cw+xp)*4,iu=(ym*cw+x)*4,id=(yp*cw+x)*4;
+
    const l0=lum(i),dl=Math.abs(lum(ir)-lum(il))/255,du=Math.abs(lum(id)-lum(iu))/255;
-   const cr=Math.abs(rgb[ir]-rgb[il])+Math.abs(rgb[ir+1]-rgb[il+1])+Math.abs(rgb[ir+2]-rgb[il+2]);
-   const cu=Math.abs(rgb[id]-rgb[iu])+Math.abs(rgb[id+1]-rgb[iu+1])+Math.abs(rgb[id+2]-rgb[iu+2]);
-   const edge=Math.max(dl,du,cr/765,cu/765);
-   const protect=smoothstep(.055,.22,edge);
-   const d0=protect>.35?dNearest(x,y):dLinear(x,y);
+   const cr=(Math.abs(rgb[ir]-rgb[il])+Math.abs(rgb[ir+1]-rgb[il+1])+Math.abs(rgb[ir+2]-rgb[il+2]))/765;
+   const cu=(Math.abs(rgb[id]-rgb[iu])+Math.abs(rgb[id+1]-rgb[iu+1])+Math.abs(rgb[id+2]-rgb[iu+2]))/765;
+   const edge=Math.max(dl,du,cr,cu);
+
+   const protect=smoothstep(0.04,0.18,edge);
+   protectBuf[y*cw+x]=protect;
+
+   const d0=protect>0.35?dNearest(x,y):dLinear(x,y);
    const gx=dNearest(xp,y)-dNearest(xm,y),gy=dNearest(x,yp)-dNearest(x,ym);
    const facing=1/Math.sqrt(1+30*(gx*gx+gy*gy));
-   const nearv=smoothstep(.08,.92,d0);
+   const nearv=smoothstep(0.08,0.92,d0);
+
    const r=rgb[i]/255,g=rgb[i+1]/255,b=rgb[i+2]/255;
    const mx=Math.max(r,g,b),mn=Math.min(r,g,b),chrom=mx-mn,L=l0/255;
-   const spec=Math.pow(Math.max(0,(L-.5)/.5),3)*(1-.55*chrom)*facing;
+   const spec=Math.pow(Math.max(0,(L-0.5)/0.5),3)*(1-0.55*chrom)*facing;
+
    out[i]=Math.round(nearv*255);
-   out[i+1]=Math.round(facing*255);
-   out[i+2]=Math.round(protect*255);
+   out[i+1]=Math.round(Math.max(0,Math.min(1,facing))*255);
    out[i+3]=Math.round(Math.max(0,Math.min(1,spec))*255);
  }
+
+ // Feather only the edge-protection channel once during setup.
+ for(let y=0;y<ch;y++)for(let x=0;x<cw;x++){
+   const idx=y*cw+x;
+   const xm=Math.max(0,x-1),xp=Math.min(cw-1,x+1),ym=Math.max(0,y-1),yp=Math.min(ch-1,y+1);
+   const p=
+     protectBuf[idx]*0.5+
+     protectBuf[y*cw+xm]*0.125+
+     protectBuf[y*cw+xp]*0.125+
+     protectBuf[ym*cw+x]*0.125+
+     protectBuf[yp*cw+x]*0.125;
+   out[idx*4+2]=Math.round(Math.max(0,Math.min(1,p))*255);
+ }
+
  return out;
 }
 function render(){
@@ -207,7 +240,7 @@ async function analyze(file){
  try{await pipe.dispose?.()}catch(_e){} pipe=null;mod=null;
  $('status').textContent='Depth 완료 · 편집 화면으로 전환 중…';
  await put({original:file,ow,oh,dw,dh,depth:d.buffer});
- location.replace(location.pathname+'?edit=1&v=511');
+ location.replace(location.pathname+'?edit=1&v=512');
 }
 async function savePhoto(){
  const btn=$('save'),old=btn.textContent,oldTex=texImg,oldW=c.width,oldH=c.height;
