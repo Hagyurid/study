@@ -1,7 +1,7 @@
 <!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>FlashLook Web V5</title><style>
-*{box-sizing:border-box}body{margin:0;background:#080808;color:#eee;font:14px -apple-system,BlinkMacSystemFont,sans-serif}.wrap{max-width:720px;margin:auto;padding:18px}.top{padding:35px 0 16px}.top b{font-size:22px}.muted{color:#777;margin-top:5px}.stage{background:#111;border-radius:18px;overflow:hidden;min-height:340px;display:flex;align-items:center;justify-content:center}canvas{display:block;width:100%;height:auto}.btn{width:100%;border:0;border-radius:14px;padding:15px;margin-top:12px;font-weight:750;background:#fff;color:#000}.panel{background:#121212;border-radius:16px;padding:14px;margin-top:12px}.actions{display:flex;gap:8px;margin-bottom:14px}.mini{flex:1;border:1px solid #303030;background:#1b1b1b;color:#eee;border-radius:11px;padding:11px 10px;font-weight:700}.row{padding:12px 0;border-top:1px solid #242424}.row:first-of-type{border-top:0}.lab{display:flex;align-items:center;justify-content:space-between;gap:10px;color:#ddd}.name{font-weight:700}.valuebox{display:flex;align-items:center;gap:8px}.reset{border:1px solid #343434;background:#1b1b1b;color:#aaa;border-radius:9px;padding:7px 9px;font-size:12px}.desc{color:#777;font-size:12px;line-height:1.45;margin:5px 0 7px}input[type=range]{width:100%;touch-action:pan-y}.status{color:#8a8a8a;line-height:1.45;margin:12px 2px}.hide{display:none}
-</style></head><body><div class="wrap"><div class="top"><b>FLASH LOOK</b><div class="muted">Web V5.0.3 · smoother WebGL editor</div></div>
-<div class="stage"><canvas id="c"></canvas><span id="empty">사진을 선택하세요</span></div><input id="file" type="file" accept="image/*" hidden><button class="btn" id="pick">사진 선택</button>
+*{box-sizing:border-box}body{margin:0;background:#080808;color:#eee;font:14px -apple-system,BlinkMacSystemFont,sans-serif}.wrap{max-width:720px;margin:auto;padding:18px}.top{padding:35px 0 16px}.top b{font-size:22px}.muted{color:#777;margin-top:5px}.stage{background:#111;border-radius:18px;overflow:hidden;min-height:340px;display:flex;align-items:center;justify-content:center}canvas{display:block;width:100%;height:auto}.btn{width:100%;border:0;border-radius:14px;padding:15px;margin-top:12px;font-weight:750;background:#fff;color:#000}.btn.dark{background:#1b1b1b;color:#eee;border:1px solid #303030}.panel{background:#121212;border-radius:16px;padding:14px;margin-top:12px}.actions{display:flex;gap:8px;margin-bottom:14px}.mini{flex:1;border:1px solid #303030;background:#1b1b1b;color:#eee;border-radius:11px;padding:11px 10px;font-weight:700}.row{padding:12px 0;border-top:1px solid #242424}.row:first-of-type{border-top:0}.lab{display:flex;align-items:center;justify-content:space-between;gap:10px;color:#ddd}.name{font-weight:700}.valuebox{display:flex;align-items:center;gap:8px}.reset{border:1px solid #343434;background:#1b1b1b;color:#aaa;border-radius:9px;padding:7px 9px;font-size:12px}.desc{color:#777;font-size:12px;line-height:1.45;margin:5px 0 7px}input[type=range]{width:100%;touch-action:pan-y}.status{color:#8a8a8a;line-height:1.45;margin:12px 2px}.hide{display:none}
+</style></head><body><div class="wrap"><div class="top"><b>FLASH LOOK</b><div class="muted">Web V5.0.4 · hi-res editor + save</div></div>
+<div class="stage"><canvas id="c"></canvas><span id="empty">사진을 선택하세요</span></div><input id="file" type="file" accept="image/*" hidden><button class="btn dark" id="pick">사진 선택</button><button class="btn" id="save" hidden>사진 저장</button>
 <div id="status" class="status">분석 시에만 AI를 로드합니다. 편집 화면에는 AI/ONNX를 로드하지 않습니다.</div>
 <div id="panel" class="panel hide"></div></div>
 <script type="module">
@@ -58,7 +58,7 @@ function ui(){
    let r=document.createElement('div');r.className='row';
    r.innerHTML=`<div class="lab"><div><span class="name">${n}</span> <span style="color:#5f5f5f;font-size:11px">${en}</span></div><div class="valuebox"><span id="v_${k}">${vals[k].toFixed(2)}</span><button class="reset" type="button">원본</button></div></div><div class="desc">${desc}</div><input id="s_${k}" type="range" min="${min}" max="${max}" step=".01" value="${vals[k]}">`;
    let sl=r.querySelector('input'),reset=r.querySelector('.reset');
-   sl.onpointerdown=()=>{dragging=true;setRenderScale(.55)};
+   sl.onpointerdown=()=>{dragging=true;setRenderScale(.42)};
    const finish=()=>{if(!dragging)return;dragging=false;setRenderScale(1)};
    sl.onpointerup=finish;sl.onpointercancel=finish;sl.onchange=finish;
    sl.oninput=()=>{vals[k]=+sl.value;$('v_'+k).textContent=vals[k].toFixed(2);queueRender()};
@@ -66,12 +66,12 @@ function ui(){
    q.appendChild(r);
  }
 }
-async function restore(){let q=await get();if(!q)return false;let bm=await createImageBitmap(q.blob);fullW=q.w;fullH=q.h;depthW=q.dw;depthH=q.dh;c.width=fullW;c.height=fullH;$('empty').remove();texImg=texture(0,q.w,q.h,bm);bm.close();texDepth=texture(1,q.dw,q.dh,new Uint8Array(q.depth));$('status').textContent='편집 모드 · AI 모델/Transformers.js 미로드 · WebGL GPU 렌더링';ui();render();return true}
+async function restore(){let q=await get();if(!q)return false;let bm=await createImageBitmap(q.blob);fullW=q.w;fullH=q.h;depthW=q.dw;depthH=q.dh;c.width=fullW;c.height=fullH;$('empty').remove();texImg=texture(0,q.w,q.h,bm);bm.close();texDepth=texture(1,q.dw,q.dh,new Uint8Array(q.depth));$('save').hidden=false;$('pick').textContent='다른 사진 선택';$('status').textContent='편집 모드 · 슬라이더에서 손을 떼면 고해상도로 복원됩니다.';ui();render();return true}
 async function analyze(file){
  $('status').textContent='사진을 작게 준비하는 중…';
  let bm=await createImageBitmap(file),ow=bm.width,oh=bm.height;
  // Keep only a modest preview for editing. Never give the original full-res image to ONNX.
- let maxPixels=650000,ps=Math.min(1,Math.sqrt(maxPixels/(ow*oh))),w=Math.max(1,Math.round(ow*ps)),h=Math.max(1,Math.round(oh*ps));
+ let maxPixels=2000000,ps=Math.min(1,Math.sqrt(maxPixels/(ow*oh))),w=Math.max(1,Math.round(ow*ps)),h=Math.max(1,Math.round(oh*ps));
  let pc=document.createElement('canvas');pc.width=w;pc.height=h;pc.getContext('2d',{alpha:false}).drawImage(bm,0,0,w,h);
  let blob=await new Promise((ok,no)=>pc.toBlob(v=>v?ok(v):no(Error('preview encode 실패')),'image/jpeg',.86));
  let ds=Math.min(1,256/Math.max(ow,oh)),iw=Math.max(64,Math.round(ow*ds)),ih=Math.max(64,Math.round(oh*ds));
@@ -94,8 +94,34 @@ async function analyze(file){
  try{await pipe.dispose?.()}catch(_e){} pipe=null;mod=null;
  $('status').textContent='Depth 완료 · 편집 화면으로 전환 중…';
  await put({blob,w,h,dw,dh,depth:d.buffer});
- location.replace(location.pathname+'?edit=1&v=503');
+ location.replace(location.pathname+'?edit=1&v=504');
 }
+async function savePhoto(){
+ const btn=$('save'),old=btn.textContent;
+ try{
+  btn.disabled=true;btn.textContent='사진 만드는 중…';
+  if(raf){cancelAnimationFrame(raf);raf=0}
+  if(c.width!==fullW||c.height!==fullH){c.width=fullW;c.height=fullH}
+  render();
+  const blob=await new Promise((ok,no)=>c.toBlob(v=>v?ok(v):no(Error('JPEG 저장 실패')),'image/jpeg',.94));
+  const name='FlashLook-'+new Date().toISOString().replace(/[:.]/g,'-')+'.jpg';
+  const file=new File([blob],name,{type:'image/jpeg'});
+  if(navigator.canShare&&navigator.canShare({files:[file]})){
+   try{
+    await navigator.share({files:[file],title:'FlashLook'});
+    $('status').textContent='공유 메뉴에서 ‘이미지 저장’을 선택하면 사진 앱에 저장됩니다.';
+    return;
+   }catch(e){if(e&&e.name==='AbortError')return}
+  }
+  const url=URL.createObjectURL(blob),a=document.createElement('a');
+  a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),5000);
+  $('status').textContent='JPEG 저장을 시작했습니다.';
+ }catch(e){
+  console.error(e);$('status').textContent='저장 실패: '+e.message;
+ }finally{btn.disabled=false;btn.textContent=old}
+}
+$('save').onclick=savePhoto;
 $('pick').onclick=()=>$('file').click();$('file').onchange=async e=>{try{await analyze(e.target.files[0])}catch(err){$('status').textContent='분석 실패: '+err.message;console.error(err)}};
 if(new URLSearchParams(location.search).get('edit')==='1')restore();
 </script></body></html>
