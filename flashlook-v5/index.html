@@ -24,55 +24,31 @@ async function put(v){let d=await db();return new Promise((ok,no)=>{let t=d.tran
 async function get(){let d=await db();return new Promise((ok,no)=>{let q=d.transaction('s').objectStore('s').get('last');q.onsuccess=()=>ok(q.result);q.onerror=()=>no(q.error)})}
 function shader(type,src){let s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(s));return s}
 const vs='attribute vec2 p;varying vec2 uv;void main(){uv=vec2((p.x+1.)*.5,1.-(p.y+1.)*.5);gl_Position=vec4(p,0,1);}';
-const fs=`precision mediump float;varying vec2 uv;uniform sampler2D im,ctl;uniform float flash,ambient,hardness,specular,background,warmth,saturation;
+const fs=`precision mediump float;
+varying vec2 uv;
+uniform sampler2D im,ctl;
+uniform float flash,ambient,hardness,specular,background,warmth,saturation;
 void main(){
  vec3 col=texture2D(im,uv).rgb;
- vec4 c=texture2D(ctl,uv);
- float nearv=c.r;
- float facing=c.g;
- float protect=c.b;
- float specBase=c.a;
+ vec4 ctrl=texture2D(ctl,uv);
+ float nearv=ctrl.r;
+ float facing=ctrl.g;
+ float protect=ctrl.b;
+ float specBase=ctrl.a;
  float safeFacing=mix(facing,1.0,protect);
  float safeNear=mix(nearv,step(.5,nearv),protect*.72);
  float direct=(.16+.84*safeNear*safeNear)*mix(.55,safeFacing,hardness);
- float bg=mix(background,1.,safeNear);
+ float bg=mix(background,1.0,safeNear);
  col*=ambient*bg;
  col+=col*direct*flash*.78;
- col+=vec3(1.)*specBase*specular*.72*(1.-protect*.55);
- col.r*=1.+.09*warmth;
- col.b*=1.-.09*warmth;
+ col+=vec3(1.0)*specBase*specular*.72*(1.0-protect*.55);
+ col.r*=1.0+.09*warmth;
+ col.b*=1.0-.09*warmth;
  float l=dot(col,vec3(.299,.587,.114));
  col=mix(vec3(l),col,saturation);
- col=col/(1.+max(col-1.,0.)*.55);
- gl_FragColor=vec4(clamp(col,0.,1.),1.);
-}`!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>FlashLook Web V5</title><style>
-*{box-sizing:border-box}body{margin:0;background:#080808;color:#eee;font:14px -apple-system,BlinkMacSystemFont,sans-serif}.wrap{max-width:720px;margin:auto;padding:18px}.top{padding:35px 0 16px}.top b{font-size:22px}.muted{color:#777;margin-top:5px}.stage{background:#111;border-radius:18px;overflow:hidden;min-height:340px;display:flex;align-items:center;justify-content:center}canvas{display:block;width:100%;height:auto}.btn{width:100%;border:0;border-radius:14px;padding:15px;margin-top:12px;font-weight:750;background:#fff;color:#000}.btn.dark{background:#1b1b1b;color:#eee;border:1px solid #303030}.panel{background:#121212;border-radius:16px;padding:14px;margin-top:12px}.actions{display:flex;gap:8px;margin-bottom:14px}.mini{flex:1;border:1px solid #303030;background:#1b1b1b;color:#eee;border-radius:11px;padding:11px 10px;font-weight:700}.row{padding:12px 0;border-top:1px solid #242424}.row:first-of-type{border-top:0}.lab{display:flex;align-items:center;justify-content:space-between;gap:10px;color:#ddd}.name{font-weight:700}.valuebox{display:flex;align-items:center;gap:8px}.reset{border:1px solid #343434;background:#1b1b1b;color:#aaa;border-radius:9px;padding:7px 9px;font-size:12px}.desc{color:#777;font-size:12px;line-height:1.45;margin:5px 0 7px}input[type=range]{width:100%;touch-action:pan-y}.status{color:#8a8a8a;line-height:1.45;margin:12px 2px}.hide{display:none}
-</style></head><body><div class="wrap"><div class="top"><b>FLASH LOOK</b><div class="muted">Web V5.0.7 · lossless source preview</div></div>
-<div class="stage"><canvas id="c"></canvas><span id="empty">사진을 선택하세요</span></div><input id="file" type="file" accept="image/*" hidden><button class="btn dark" id="pick">사진 선택</button><button class="btn" id="save" hidden>사진 저장</button>
-<div id="status" class="status">분석 시에만 AI를 로드합니다. 편집 화면에는 AI/ONNX를 로드하지 않습니다.</div>
-<div id="panel" class="panel hide"></div></div>
-<script type="module">
-const $=x=>document.getElementById(x),c=$('c'),gl=c.getContext('webgl',{alpha:false,antialias:false,preserveDrawingBuffer:false});
-let texImg,texCtl,raf=0,lastFrame=0,fullW=0,fullH=0,controlW=512,controlH=512,dragging=false,originalBlob=null;c.addEventListener('webglcontextlost',e=>{e.preventDefault();$('status').textContent='GPU 메모리가 부족해 편집 화면을 정리했습니다. 페이지를 새로고침하면 저장된 Depth로 다시 열립니다.'});
-const preset={flash:1.05,ambient:.72,hardness:.65,specular:.55,background:.72,warmth:0,saturation:1};
-const original={flash:0,ambient:1,hardness:0,specular:0,background:1,warmth:0,saturation:1};
-let vals={...preset};
-const controls=[
- ['flash','플래시 광량','Flash',0,2,'정면에서 터지는 플래시 자체의 세기. 높일수록 피사체가 더 강하게 밝아짐.'],
- ['ambient','주변광','Ambient',.2,1.2,'원래 사진에 있던 빛의 양. 낮추면 플래시 사진처럼 주변이 어두워짐.'],
- ['hardness','빛의 경도','Hardness',0,1,'표면 각도에 따라 빛이 갈리는 정도. 높을수록 직광의 입체감이 강해짐.'],
- ['specular','반사광','Specular',0,1.4,'피부·유리·금속처럼 반짝이는 부분의 하이라이트 강도.'],
- ['background','배경 밝기','Background',.25,1.15,'멀리 있는 배경의 밝기. 낮출수록 피사체와 배경 분리가 강해짐.'],
- ['warmth','색온도','WB',-1,1,'마이너스는 차갑게, 플러스는 따뜻하게 플래시 색을 조정.'],
- ['saturation','채도','Saturation',0,1.5,'사진 전체 색의 진한 정도. 1.00이 원본 채도.']
-];
-const DB='flashlook-web-v5';function db(){return new Promise((ok,no)=>{let q=indexedDB.open(DB,1);q.onupgradeneeded=()=>q.result.createObjectStore('s');q.onsuccess=()=>ok(q.result);q.onerror=()=>no(q.error)})}
-async function put(v){let d=await db();return new Promise((ok,no)=>{let t=d.transaction('s','readwrite');t.objectStore('s').put(v,'last');t.oncomplete=ok;t.onerror=()=>no(t.error)})}
-async function get(){let d=await db();return new Promise((ok,no)=>{let q=d.transaction('s').objectStore('s').get('last');q.onsuccess=()=>ok(q.result);q.onerror=()=>no(q.error)})}
-function shader(type,src){let s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(s));return s}
-const vs='attribute vec2 p;varying vec2 uv;void main(){uv=vec2((p.x+1.)*.5,1.-(p.y+1.)*.5);gl_Position=vec4(p,0,1);}';
-const fs=`precision mediump float;varying vec2 uv;uniform sampler2D im,dp;uniform vec2 px;uniform float flash,ambient,hardness,specular,background,warmth,saturation;
-void main(){vec3 col=texture2D(im,uv).rgb;float d=texture2D(dp,uv).r;float dx=texture2D(dp,uv+vec2(px.x,0)).r-texture2D(dp,uv-vec2(px.x,0)).r;float dy=texture2D(dp,uv+vec2(0,px.y)).r-texture2D(dp,uv-vec2(0,px.y)).r;float face=inversesqrt(1.+32.*(dx*dx+dy*dy));float near=smoothstep(.08,.92,d);float direct=(.16+.84*near*near)*mix(.55,face,hardness);float lum=dot(col,vec3(.299,.587,.114));float chrom=max(col.r,max(col.g,col.b))-min(col.r,min(col.g,col.b));float sp=pow(max(0.,lum-.48)/.52,3.)*(1.-.55*chrom)*face;float bg=mix(background,1.,near);col*=ambient*bg;col+=col*direct*flash*.78;col+=vec3(1.)*sp*specular*.8;col.r*=1.+.09*warmth;col.b*=1.-.09*warmth;float l=dot(col,vec3(.299,.587,.114));col=mix(vec3(l),col,saturation);col=col/(1.+max(col-1.,0.)*.55);gl_FragColor=vec4(clamp(col,0.,1.),1.);}`;
+ col=col/(1.0+max(col-1.0,0.0)*.55);
+ gl_FragColor=vec4(clamp(col,0.0,1.0),1.0);
+}`;
 let pr=gl.createProgram();gl.attachShader(pr,shader(gl.VERTEX_SHADER,vs));gl.attachShader(pr,shader(gl.FRAGMENT_SHADER,fs));gl.linkProgram(pr);gl.useProgram(pr);const U={im:gl.getUniformLocation(pr,'im'),ctl:gl.getUniformLocation(pr,'ctl')};for(const k of Object.keys(vals))U[k]=gl.getUniformLocation(pr,k);let b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);let p=gl.getAttribLocation(pr,'p');gl.enableVertexAttribArray(p);gl.vertexAttribPointer(p,2,gl.FLOAT,false,0,0);
 function texture(unit,w,h,data){let t=gl.createTexture();gl.activeTexture(gl.TEXTURE0+unit);gl.bindTexture(gl.TEXTURE_2D,t);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);if(data instanceof ImageBitmap)gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,data);else gl.texImage2D(gl.TEXTURE_2D,0,gl.LUMINANCE,w,h,0,gl.LUMINANCE,gl.UNSIGNED_BYTE,data);return t}
 function controlTexture(w,h,data){
@@ -231,7 +207,7 @@ async function analyze(file){
  try{await pipe.dispose?.()}catch(_e){} pipe=null;mod=null;
  $('status').textContent='Depth 완료 · 편집 화면으로 전환 중…';
  await put({original:file,ow,oh,dw,dh,depth:d.buffer});
- location.replace(location.pathname+'?edit=1&v=51');
+ location.replace(location.pathname+'?edit=1&v=511');
 }
 async function savePhoto(){
  const btn=$('save'),old=btn.textContent,oldTex=texImg,oldW=c.width,oldH=c.height;
