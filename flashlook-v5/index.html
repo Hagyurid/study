@@ -20,21 +20,24 @@ body.editing .lab{font-size:12px}
 body.editing .reset{padding:5px 7px;font-size:11px}
 body.editing input[type=range]{margin:2px 0 0;height:24px}
 @media (max-height:700px){body.editing .stage{flex-basis:34dvh}}
-</style></head><body><div class="wrap"><div class="top"><b>FLASH LOOK</b><div class="muted">Web V5.3 · adjustable edge blending</div></div>
+</style></head><body><div class="wrap"><div class="top"><b>FLASH LOOK</b><div class="muted">Web V5.4 · edge direction + flash-only color</div></div>
 <div class="stage"><canvas id="c"></canvas><span id="empty">사진을 선택하세요</span></div><input id="file" type="file" accept="image/*" hidden><div class="toolbar"><button class="btn dark" id="pick">사진 선택</button><button class="btn" id="save" hidden>사진 저장</button></div>
 <div id="status" class="status">분석 시에만 AI를 로드합니다. 편집 화면에는 AI/ONNX를 로드하지 않습니다.</div>
 <div id="panel" class="panel hide"></div></div>
 <script type="module">
 const $=x=>document.getElementById(x),c=$('c'),gl=c.getContext('webgl',{alpha:false,antialias:false,preserveDrawingBuffer:false});
 let texImg,texCtl,raf=0,lastFrame=0,fullW=0,fullH=0,controlW=512,controlH=512,dragging=false,originalBlob=null;c.addEventListener('webglcontextlost',e=>{e.preventDefault();$('status').textContent='GPU 메모리가 부족해 편집 화면을 정리했습니다. 페이지를 새로고침하면 저장된 Depth로 다시 열립니다.'});
-const preset={flash:1.0,ambient:1,hardness:.65,specular:.45,background:1,warmth:0,saturation:1,edgeBlend:.35};
-const original={flash:0,ambient:1,hardness:0,specular:0,background:1,warmth:0,saturation:1,edgeBlend:0};
+const preset={flash:1.0,ambient:1,hardness:.65,specular:.45,background:1,warmth:0,saturation:1,edgeBlend:.35,edgeShift:0,flashSaturation:1,flashContrast:1};
+const original={flash:0,ambient:1,hardness:0,specular:0,background:1,warmth:0,saturation:1,edgeBlend:0,edgeShift:0,flashSaturation:1,flashContrast:1};
 let vals={...preset};
 const controls=[
  ['flash','플래시 광량','Flash',0,2,'원본 위에 빛만 추가합니다. 이 슬라이더 자체는 어떤 영역도 어둡게 하지 않습니다.'],
  ['ambient','주변광','Ambient',.2,1.2,'원래 사진에 있던 빛의 양. 낮추면 플래시 사진처럼 주변이 어두워짐.'],
  ['hardness','빛의 경도','Hardness',0,1,'표면 각도에 따라 빛이 갈리는 정도. 높을수록 직광의 입체감이 강해짐.'],
  ['edgeBlend','경계 블렌딩','Edge Blend',0,1,'사진은 흐리지 않고 Depth 기반 플래시 경계만 주변으로 부드럽게 섞습니다.'],
+ ['edgeShift','경계 방향','Edge Direction',-1,1,'마이너스는 플래시 영역 안쪽으로, 플러스는 바깥쪽으로 블렌딩 경계를 이동합니다.'],
+ ['flashSaturation','플래시 영역 채도','Flash Saturation',0,1.8,'플래시가 실제로 더해지는 부분의 색감만 조절합니다.'],
+ ['flashContrast','플래시 영역 대비','Flash Contrast',0.5,1.6,'플래시가 더해지는 부분의 대비만 조절합니다.'],
  ['specular','반사광','Specular',0,1.4,'피부·유리·금속처럼 반짝이는 부분의 하이라이트 강도.'],
  ['background','배경 밝기','Background',.25,1.15,'멀리 있는 배경의 밝기. 낮출수록 피사체와 배경 분리가 강해짐.'],
  ['warmth','색온도','WB',-1,1,'마이너스는 차갑게, 플러스는 따뜻하게 플래시 색을 조정.'],
@@ -48,7 +51,7 @@ const vs='attribute vec2 p;varying vec2 uv;void main(){uv=vec2((p.x+1.)*.5,1.-(p
 const fs=`precision mediump float;
 varying vec2 uv;
 uniform sampler2D im,ctl;
-uniform float flash,ambient,hardness,specular,background,warmth,saturation,edgeBlend;
+uniform float flash,ambient,hardness,specular,background,warmth,saturation,edgeBlend,edgeShift,flashSaturation,flashContrast;
 void main(){
  vec3 source=texture2D(im,uv).rgb;
  vec4 ctrl=texture2D(ctl,uv);
@@ -57,13 +60,16 @@ void main(){
  float nearSoft=ctrl.b;
  float specBase=ctrl.a;
 
- // B contains a one-time feathered near map. No extra texture fetch is needed.
- float edgeDelta=abs(nearRaw-nearSoft);
+ float signedDelta=nearSoft-nearRaw;
+ float edgeDelta=abs(signedDelta);
  float edge=smoothstep(0.012,0.12,edgeDelta);
  float blendAmt=clamp(edgeBlend,0.0,1.0);
- float nearv=mix(nearRaw,nearSoft,blendAmt);
 
- // At uncertain contours, gradually stop trusting surface direction as blend increases.
+ // Base feather plus signed inward/outward bias. No extra texture sample.
+ float nearv=mix(nearRaw,nearSoft,blendAmt);
+ float dir=clamp(edgeShift,-1.0,1.0);
+ nearv=clamp(nearv + dir*edgeDelta*edge*(0.85+0.65*blendAmt),0.0,1.0);
+
  float safeFacing=mix(facing,1.0,edge*blendAmt*0.75);
  float direct=(0.16+0.84*nearv*nearv)*mix(0.55,safeFacing,hardness);
 
@@ -75,11 +81,16 @@ void main(){
  float l=dot(col,vec3(0.299,0.587,0.114));
  col=mix(vec3(l),col,saturation);
 
+ // Flash-only colour shaping: base image is untouched by these two controls.
+ float srcL=dot(source,vec3(0.299,0.587,0.114));
+ vec3 flashColor=mix(vec3(srcL),source,flashSaturation);
+ flashColor=(flashColor-vec3(0.5))*flashContrast+vec3(0.5);
+ flashColor=clamp(flashColor,0.0,1.0);
+
  vec3 flashTint=vec3(1.0+0.035*warmth,1.0,1.0-0.035*warmth);
- vec3 flashAdd=mix(source,flashTint,0.22)*max(0.0,direct*flash*0.62);
+ vec3 flashAdd=mix(flashColor,flashTint,0.22)*max(0.0,direct*flash*0.62);
  col+=max(flashAdd,vec3(0.0));
 
- // Keep specular additive; only gently stabilize it at uncertain contours.
  float specSafe=specBase*(1.0-edge*blendAmt*0.18);
  col+=vec3(1.0)*max(0.0,specSafe*specular*0.60);
 
@@ -260,7 +271,7 @@ async function analyze(file){
  try{await pipe.dispose?.()}catch(_e){} pipe=null;mod=null;
  $('status').textContent='Depth 완료 · 편집 화면으로 전환 중…';
  await put({original:file,ow,oh,dw,dh,depth:d.buffer});
- location.replace(location.pathname+'?edit=1&v=53');
+ location.replace(location.pathname+'?edit=1&v=54');
 }
 async function savePhoto(){
  const btn=$('save'),old=btn.textContent,oldTex=texImg,oldW=c.width,oldH=c.height;
