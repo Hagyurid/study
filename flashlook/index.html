@@ -1,0 +1,457 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>FLASH LOOK</title>
+  <style>
+    :root{
+      --bg:#f1efe9;
+      --panel:#faf8f3;
+      --ink:#2f2c29;
+      --muted:#77716a;
+      --line:#d9d4cb;
+      --accent:#2f2c29;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      background:var(--bg);
+      color:var(--ink);
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+    }
+    .app{min-height:100vh;display:grid;grid-template-rows:auto 1fr}
+    header{
+      position:sticky;top:0;z-index:10;
+      display:flex;align-items:center;justify-content:space-between;
+      gap:12px;padding:16px 18px;
+      background:rgba(241,239,233,.94);backdrop-filter:blur(10px);
+      border-bottom:1px solid var(--line)
+    }
+    .brand{font-weight:800;letter-spacing:.12em;font-size:15px}
+    .sub{font-size:12px;color:var(--muted)}
+    .shell{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:16px;padding:16px;min-height:0}
+    .stage{
+      min-height:520px;border:1px solid var(--line);border-radius:18px;background:#ddd8cf;
+      position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;
+    }
+    .stage.drag{outline:3px dashed #77716a;outline-offset:-10px}
+    canvas{max-width:100%;max-height:calc(100vh - 110px);display:block;touch-action:none}
+    .empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;text-align:center;color:var(--muted)}
+    .empty strong{color:var(--ink);font-size:18px;margin-bottom:8px}
+    .empty button{margin-top:16px}
+    .flash-dot{
+      position:absolute;width:28px;height:28px;border-radius:50%;border:2px solid rgba(255,255,255,.95);
+      box-shadow:0 0 0 1px rgba(0,0,0,.35),0 0 24px rgba(255,255,255,.65);
+      transform:translate(-50%,-50%);pointer-events:none;display:none
+    }
+    aside{
+      border:1px solid var(--line);border-radius:18px;background:var(--panel);padding:16px;
+      overflow:auto;max-height:calc(100vh - 110px)
+    }
+    .section{padding:2px 0 16px;margin-bottom:14px;border-bottom:1px solid var(--line)}
+    .section:last-child{border-bottom:0;margin-bottom:0}
+    h2{font-size:14px;margin:0 0 10px}
+    .row{display:flex;gap:8px;align-items:center}
+    button,.fileLabel{
+      appearance:none;border:1px solid var(--line);background:#fff;color:var(--ink);
+      min-height:42px;border-radius:12px;padding:10px 12px;font-weight:700;cursor:pointer;text-align:center
+    }
+    button.primary{background:var(--accent);color:white;border-color:var(--accent)}
+    button:disabled{opacity:.45;cursor:not-allowed}
+    .fileLabel{display:block;width:100%}
+    input[type=file]{display:none}
+    .control{margin:12px 0}
+    .labelrow{display:flex;justify-content:space-between;gap:12px;font-size:13px;margin-bottom:7px}
+    .value{font-variant-numeric:tabular-nums;color:var(--muted)}
+    input[type=range]{width:100%;accent-color:#2f2c29}
+    .hint{font-size:12px;line-height:1.55;color:var(--muted);margin-top:8px}
+    .seg{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    .seg button.active{background:#2f2c29;color:white;border-color:#2f2c29}
+    .presetGrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    .mini{font-size:11px;color:var(--muted);margin-top:5px}
+    .footerNote{font-size:11px;color:var(--muted);line-height:1.5}
+    @media (max-width:880px){
+      .shell{grid-template-columns:1fr;padding:10px}
+      .stage{min-height:58vh;border-radius:14px}
+      aside{max-height:none;border-radius:14px}
+      canvas{max-height:70vh}
+      header{padding:13px 14px}
+    }
+  </style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div>
+      <div class="brand">FLASH LOOK</div>
+      <div class="sub">AI 없이 만드는 직광 플래시 사진 효과</div>
+    </div>
+    <div class="row">
+      <button id="resetBtn" disabled>초기화</button>
+      <button id="saveBtn" class="primary" disabled>저장</button>
+    </div>
+  </header>
+
+  <main class="shell">
+    <section id="stage" class="stage">
+      <canvas id="canvas"></canvas>
+      <div id="flashDot" class="flash-dot"></div>
+      <div id="empty" class="empty">
+        <strong>사진을 올려주세요</strong>
+        <div>사진 위를 클릭하면 플래시 중심 위치를 바꿀 수 있어요.</div>
+        <label class="fileLabel" for="fileInput">사진 선택</label>
+      </div>
+    </section>
+
+    <aside>
+      <div class="section">
+        <h2>사진</h2>
+        <label class="fileLabel" for="fileInput">사진 불러오기</label>
+        <input id="fileInput" type="file" accept="image/*" />
+        <div class="hint">사진은 서버로 업로드되지 않고 현재 브라우저에서만 처리됩니다.</div>
+      </div>
+
+      <div class="section">
+        <h2>보기</h2>
+        <div class="seg">
+          <button id="afterBtn" class="active" disabled>효과 적용</button>
+          <button id="beforeBtn" disabled>원본 보기</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>프리셋</h2>
+        <div class="presetGrid">
+          <button data-preset="compact" disabled>디카 직광</button>
+          <button data-preset="party" disabled>밤 파티</button>
+          <button data-preset="soft" disabled>소프트 플래시</button>
+          <button data-preset="cold" disabled>쿨 플래시</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>플래시</h2>
+        <div class="control">
+          <div class="labelrow"><span>강도</span><span id="strengthVal" class="value"></span></div>
+          <input id="strength" type="range" min="0" max="100" value="58" />
+        </div>
+        <div class="control">
+          <div class="labelrow"><span>광원 크기</span><span id="radiusVal" class="value"></span></div>
+          <input id="radius" type="range" min="20" max="140" value="78" />
+        </div>
+        <div class="control">
+          <div class="labelrow"><span>주변부 감쇠</span><span id="falloffVal" class="value"></span></div>
+          <input id="falloff" type="range" min="30" max="180" value="92" />
+        </div>
+        <div class="hint">사진 위를 눌러 플래시 중심을 직접 지정할 수 있습니다.</div>
+      </div>
+
+      <div class="section">
+        <h2>톤</h2>
+        <div class="control">
+          <div class="labelrow"><span>대비</span><span id="contrastVal" class="value"></span></div>
+          <input id="contrast" type="range" min="-30" max="50" value="12" />
+        </div>
+        <div class="control">
+          <div class="labelrow"><span>하이라이트</span><span id="highlightsVal" class="value"></span></div>
+          <input id="highlights" type="range" min="0" max="100" value="28" />
+        </div>
+        <div class="control">
+          <div class="labelrow"><span>색온도</span><span id="temperatureVal" class="value"></span></div>
+          <input id="temperature" type="range" min="-50" max="50" value="-6" />
+          <div class="mini">− 차갑게 / + 따뜻하게</div>
+        </div>
+        <div class="control">
+          <div class="labelrow"><span>채도</span><span id="saturationVal" class="value"></span></div>
+          <input id="saturation" type="range" min="-50" max="50" value="-8" />
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>질감</h2>
+        <div class="control">
+          <div class="labelrow"><span>비네트</span><span id="vignetteVal" class="value"></span></div>
+          <input id="vignette" type="range" min="0" max="100" value="14" />
+        </div>
+        <div class="control">
+          <div class="labelrow"><span>그레인</span><span id="grainVal" class="value"></span></div>
+          <input id="grain" type="range" min="0" max="100" value="10" />
+        </div>
+      </div>
+
+      <div class="footerNote">
+        이 버전은 얼굴/사물 인식 없이 픽셀 밝기와 화면 위치만 이용합니다. 그래서 실제 장면의 깊이나 물체 뒤 그림자까지 재구성하지는 않습니다.
+      </div>
+    </aside>
+  </main>
+</div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const fileInput = document.getElementById('fileInput');
+  const stage = document.getElementById('stage');
+  const empty = document.getElementById('empty');
+  const flashDot = document.getElementById('flashDot');
+  const saveBtn = document.getElementById('saveBtn');
+  const resetBtn = document.getElementById('resetBtn');
+  const beforeBtn = document.getElementById('beforeBtn');
+  const afterBtn = document.getElementById('afterBtn');
+  const presetBtns = [...document.querySelectorAll('[data-preset]')];
+
+  const ids = ['strength','radius','falloff','contrast','highlights','temperature','saturation','vignette','grain'];
+  const el = Object.fromEntries(ids.map(id => [id, document.getElementById(id)]));
+  const valEl = Object.fromEntries(ids.map(id => [id, document.getElementById(id+'Val')]));
+
+  const defaults = {
+    strength:58, radius:78, falloff:92, contrast:12, highlights:28,
+    temperature:-6, saturation:-8, vignette:14, grain:10
+  };
+
+  const presets = {
+    compact:{ strength:66, radius:68, falloff:82, contrast:18, highlights:35, temperature:-8, saturation:-12, vignette:18, grain:14 },
+    party:{ strength:78, radius:60, falloff:74, contrast:24, highlights:45, temperature:2, saturation:5, vignette:30, grain:18 },
+    soft:{ strength:42, radius:110, falloff:135, contrast:4, highlights:18, temperature:4, saturation:-4, vignette:6, grain:5 },
+    cold:{ strength:64, radius:80, falloff:92, contrast:14, highlights:36, temperature:-28, saturation:-10, vignette:16, grain:9 }
+  };
+
+  let original = null;
+  let showingOriginal = false;
+  let flashX = .5;
+  let flashY = .43;
+  let renderToken = 0;
+  let imageName = 'flash-look';
+
+  function clamp(v,min=0,max=255){ return v<min?min:v>max?max:v; }
+  function smoothstep(a,b,x){
+    const t = Math.max(0,Math.min(1,(x-a)/(b-a)));
+    return t*t*(3-2*t);
+  }
+  function updateValues(){
+    valEl.strength.textContent = el.strength.value + '%';
+    valEl.radius.textContent = el.radius.value + '%';
+    valEl.falloff.textContent = el.falloff.value + '%';
+    valEl.contrast.textContent = (el.contrast.value>0?'+':'') + el.contrast.value;
+    valEl.highlights.textContent = el.highlights.value + '%';
+    valEl.temperature.textContent = (el.temperature.value>0?'+':'') + el.temperature.value;
+    valEl.saturation.textContent = (el.saturation.value>0?'+':'') + el.saturation.value;
+    valEl.vignette.textContent = el.vignette.value + '%';
+    valEl.grain.textContent = el.grain.value + '%';
+  }
+
+  function enableUI(on=true){
+    [saveBtn,resetBtn,beforeBtn,afterBtn,...presetBtns].forEach(b=>b.disabled=!on);
+  }
+
+  function fitCanvas(img){
+    const maxPixels = 2800*2800;
+    let w = img.naturalWidth || img.width;
+    let h = img.naturalHeight || img.height;
+    const px = w*h;
+    if(px > maxPixels){
+      const s = Math.sqrt(maxPixels/px);
+      w = Math.round(w*s); h = Math.round(h*s);
+    }
+    canvas.width = w; canvas.height = h;
+    ctx.drawImage(img,0,0,w,h);
+    original = ctx.getImageData(0,0,w,h);
+  }
+
+  function flashMask(nx, ny, p){
+    const dx = nx - flashX, dy = ny - flashY;
+    const aspect = canvas.width / canvas.height;
+    const d = Math.sqrt((dx*aspect)*(dx*aspect) + dy*dy);
+    const radius = (p.radius/100) * .72;
+    const fall = Math.max(.12,(p.falloff/100)*.9);
+    const core = Math.exp(-Math.pow(d/Math.max(.04,radius),2) * 1.35);
+    const radial = Math.exp(-Math.pow(d/Math.max(.05,fall),2) * .5);
+    return Math.min(1, core*.68 + radial*.32);
+  }
+
+  function render(){
+    if(!original) return;
+    const token = ++renderToken;
+    if(showingOriginal){
+      ctx.putImageData(original,0,0);
+      return;
+    }
+    const p = Object.fromEntries(ids.map(id=>[id,Number(el[id].value)]));
+    const src = original.data;
+    const out = new ImageData(new Uint8ClampedArray(src), original.width, original.height);
+    const data = out.data;
+    const w = original.width, h = original.height;
+
+    const strength = p.strength/100;
+    const contrastFactor = 1 + p.contrast/100;
+    const sat = 1 + p.saturation/100;
+    const temp = p.temperature/50;
+    const hi = p.highlights/100;
+    const vig = p.vignette/100;
+    const grain = p.grain/100;
+
+    for(let y=0;y<h;y++){
+      if(token !== renderToken) return;
+      const ny = y/(h-1||1);
+      for(let x=0;x<w;x++){
+        const i=(y*w+x)*4;
+        let r=src[i], g=src[i+1], b=src[i+2];
+        const nx=x/(w-1||1);
+        let lum=(0.2126*r+0.7152*g+0.0722*b)/255;
+
+        // Position-based flash illumination; favors midtones and shadows.
+        const fm = flashMask(nx,ny,p);
+        const shadowNeed = Math.pow(1-lum, .72);
+        const lift = strength * fm * (0.25 + 0.75*shadowNeed);
+        const screenAmt = lift * 0.92;
+        r = 255 - (255-r)*(1-screenAmt);
+        g = 255 - (255-g)*(1-screenAmt);
+        b = 255 - (255-b)*(1-screenAmt);
+
+        // Slight punch near flash center to mimic direct flash.
+        const localPunch = 1 + strength*fm*0.18;
+        r = (r-128)*localPunch+128;
+        g = (g-128)*localPunch+128;
+        b = (b-128)*localPunch+128;
+
+        // Highlight/specular emphasis without clipping everything.
+        lum=(0.2126*r+0.7152*g+0.0722*b)/255;
+        const hMask = smoothstep(.58,.98,lum) * hi * fm;
+        r += (255-r)*hMask*.55;
+        g += (255-g)*hMask*.55;
+        b += (255-b)*hMask*.55;
+
+        // Global contrast around middle gray.
+        r=(r-128)*contrastFactor+128;
+        g=(g-128)*contrastFactor+128;
+        b=(b-128)*contrastFactor+128;
+
+        // Temperature.
+        const tempAmt = temp*18;
+        r += tempAmt;
+        g += tempAmt*.18;
+        b -= tempAmt;
+
+        // Saturation.
+        const gray=.2126*r+.7152*g+.0722*b;
+        r=gray+(r-gray)*sat;
+        g=gray+(g-gray)*sat;
+        b=gray+(b-gray)*sat;
+
+        // Vignette: preserve flash center, darken image edges.
+        const ex=(nx-.5)*2, ey=(ny-.5)*2;
+        const edge=Math.min(1,Math.sqrt(ex*ex+ey*ey));
+        const vMask=Math.pow(edge,1.65)*vig*.72;
+        r*=1-vMask; g*=1-vMask; b*=1-vMask;
+
+        // Deterministic pseudo-grain.
+        if(grain>0){
+          const n = (((x*12.9898 + y*78.233) * 43758.5453) % 1);
+          const noise = ((n<0?n+1:n)-.5) * 26 * grain;
+          r+=noise; g+=noise; b+=noise;
+        }
+
+        data[i]=clamp(r); data[i+1]=clamp(g); data[i+2]=clamp(b); data[i+3]=src[i+3];
+      }
+    }
+    ctx.putImageData(out,0,0);
+  }
+
+  let timer=null;
+  function queueRender(){
+    updateValues();
+    clearTimeout(timer);
+    timer=setTimeout(render,20);
+  }
+
+  function setParams(obj){
+    Object.entries(obj).forEach(([k,v])=>{ if(el[k]) el[k].value=v; });
+    showingOriginal=false;
+    afterBtn.classList.add('active'); beforeBtn.classList.remove('active');
+    queueRender();
+  }
+
+  function loadFile(file){
+    if(!file || !file.type.startsWith('image/')) return;
+    imageName=(file.name||'flash-look').replace(/\.[^.]+$/,'');
+    const url=URL.createObjectURL(file);
+    const img=new Image();
+    img.onload=()=>{
+      fitCanvas(img);
+      URL.revokeObjectURL(url);
+      empty.style.display='none';
+      flashDot.style.display='block';
+      enableUI(true);
+      flashX=.5; flashY=.43;
+      updateDot();
+      setParams(defaults);
+    };
+    img.src=url;
+  }
+
+  function updateDot(){
+    if(!original) return;
+    const rect=canvas.getBoundingClientRect();
+    const stageRect=stage.getBoundingClientRect();
+    flashDot.style.left=(rect.left-stageRect.left + flashX*rect.width)+'px';
+    flashDot.style.top=(rect.top-stageRect.top + flashY*rect.height)+'px';
+  }
+
+  fileInput.addEventListener('change',e=>loadFile(e.target.files[0]));
+  ids.forEach(id=>el[id].addEventListener('input',queueRender));
+
+  beforeBtn.addEventListener('click',()=>{
+    if(!original)return;
+    showingOriginal=true;
+    beforeBtn.classList.add('active'); afterBtn.classList.remove('active');
+    render();
+  });
+  afterBtn.addEventListener('click',()=>{
+    if(!original)return;
+    showingOriginal=false;
+    afterBtn.classList.add('active'); beforeBtn.classList.remove('active');
+    render();
+  });
+
+  resetBtn.addEventListener('click',()=>{
+    flashX=.5; flashY=.43; updateDot(); setParams(defaults);
+  });
+  presetBtns.forEach(btn=>btn.addEventListener('click',()=>setParams(presets[btn.dataset.preset])));
+
+  canvas.addEventListener('pointerdown',e=>{
+    if(!original)return;
+    const rect=canvas.getBoundingClientRect();
+    flashX=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));
+    flashY=Math.max(0,Math.min(1,(e.clientY-rect.top)/rect.height));
+    updateDot();
+    showingOriginal=false;
+    afterBtn.classList.add('active'); beforeBtn.classList.remove('active');
+    queueRender();
+  });
+
+  stage.addEventListener('dragover',e=>{ e.preventDefault(); stage.classList.add('drag'); });
+  stage.addEventListener('dragleave',()=>stage.classList.remove('drag'));
+  stage.addEventListener('drop',e=>{
+    e.preventDefault(); stage.classList.remove('drag'); loadFile(e.dataTransfer.files[0]);
+  });
+
+  window.addEventListener('resize',updateDot);
+
+  saveBtn.addEventListener('click',()=>{
+    if(!original)return;
+    if(showingOriginal){ showingOriginal=false; render(); }
+    canvas.toBlob(blob=>{
+      const a=document.createElement('a');
+      a.href=URL.createObjectURL(blob);
+      a.download=`${imageName}-flash.jpg`;
+      document.body.appendChild(a);a.click();a.remove();
+      setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+    },'image/jpeg',.94);
+  });
+
+  updateValues();
+})();
+</script>
+</body>
+</html>
