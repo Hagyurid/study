@@ -41,7 +41,7 @@ body.brushing .stage{flex-basis:min(55dvh,520px)}
 .undoRow{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:9px}.undoRow button{border:0;border-radius:9px;padding:9px;background:#202020;color:#ddd;font-weight:750}
 .retouchModes{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin:4px 0 6px}.retouchModes button{border:0;border-radius:8px;padding:8px 2px;background:#1c1c1c;color:#888;font-size:10px;font-weight:750}.retouchModes button.on{background:#eee;color:#080808}
 .stage.paintTarget{touch-action:none;-webkit-user-select:none;user-select:none}.stage.paintTarget canvas{touch-action:none}
-.brushCursor{position:absolute;z-index:8;border:1.5px solid rgba(255,255,255,.96);border-radius:50%;pointer-events:none;transform:translate(-50%,-50%);box-shadow:0 0 0 1px rgba(0,0,0,.55),0 1px 7px rgba(0,0,0,.35);background:radial-gradient(circle,rgba(255,255,255,.16) 0%,rgba(255,255,255,.08) 34%,rgba(255,255,255,0) 76%)}.brushCursor i{position:absolute;left:50%;top:50%;border:1px dashed rgba(255,255,255,.72);border-radius:50%;transform:translate(-50%,-50%);pointer-events:none}.localBrushTitle{padding:10px;border-radius:9px;background:#202020;color:#eee;text-align:center;font-size:12px;font-weight:800}.advancedToggle{width:100%;border:1px solid #2b2b2b;background:#181818;color:#aaa;border-radius:10px;padding:10px;margin:8px 0;font-weight:750}.sectionLabel{font-size:11px;color:#777;font-weight:800;letter-spacing:.02em;margin:12px 2px 2px}.toolIntro{font-size:12px;line-height:1.45;color:#888;margin:1px 2px 9px}.toolStatus{padding:9px;border-radius:9px;background:#181818;color:#aaa;text-align:center;font-size:11px;font-weight:700}.skinRefRow{display:flex;align-items:center;gap:8px;margin-top:9px}.skinRefRow button{flex:1;border:0;border-radius:9px;padding:9px;background:#202020;color:#ddd;font-weight:750}.skinSwatch{width:30px;height:30px;border-radius:50%;border:1px solid #555;flex:0 0 30px}</style></head><body><div class="wrap"><div class="top"><b>FLASH LOOK</b><div class="muted">Web V6.5 · simplified editor</div></div>
+.brushCursor{position:absolute;z-index:8;border:1.5px solid rgba(255,255,255,.96);border-radius:50%;pointer-events:none;transform:translate(-50%,-50%);box-shadow:0 0 0 1px rgba(0,0,0,.55),0 1px 7px rgba(0,0,0,.35);background:radial-gradient(circle,rgba(255,255,255,.16) 0%,rgba(255,255,255,.08) 34%,rgba(255,255,255,0) 76%)}.brushCursor i{position:absolute;left:50%;top:50%;border:1px dashed rgba(255,255,255,.72);border-radius:50%;transform:translate(-50%,-50%);pointer-events:none}.localBrushTitle{padding:10px;border-radius:9px;background:#202020;color:#eee;text-align:center;font-size:12px;font-weight:800}.advancedToggle{width:100%;border:1px solid #2b2b2b;background:#181818;color:#aaa;border-radius:10px;padding:10px;margin:8px 0;font-weight:750}.sectionLabel{font-size:11px;color:#777;font-weight:800;letter-spacing:.02em;margin:12px 2px 2px}.toolIntro{font-size:12px;line-height:1.45;color:#888;margin:1px 2px 9px}.toolStatus{padding:9px;border-radius:9px;background:#181818;color:#aaa;text-align:center;font-size:11px;font-weight:700}.skinRefRow{display:flex;align-items:center;gap:8px;margin-top:9px}.skinRefRow button{flex:1;border:0;border-radius:9px;padding:9px;background:#202020;color:#ddd;font-weight:750}.skinSwatch{width:30px;height:30px;border-radius:50%;border:1px solid #555;flex:0 0 30px}</style></head><body><div class="wrap"><div class="top"><b>FLASH LOOK</b><div class="muted">Web V6.5.1 · simplified editor</div></div>
 <div class="stage"><canvas id="c"></canvas><div id="brushCursor" class="brushCursor" hidden><i></i></div><span id="empty">사진을 선택하세요</span><button id="compare" class="compare" hidden>원본 보기</button></div><input id="file" type="file" accept="image/*" hidden><div class="toolbar"><button class="btn dark" id="pick">사진 선택</button><button class="btn" id="save" hidden>사진 저장</button></div>
 <div id="status" class="status">분석 시에만 AI를 로드합니다. 편집 화면에는 AI/ONNX를 로드하지 않습니다.</div>
 <div id="panel" class="panel hide"></div></div>
@@ -374,7 +374,7 @@ function scheduleSessionSave(){
  },700);
 }
 function setBrushMode(on){
- brushMode=on;document.body.classList.toggle('brushing',on);painting=false;lastBrushPoint=null;
+ brushMode=on;document.body.classList.toggle('brushing',on);painting=false;lastBrushPoint=null;if(!on){maskPreview=false;skinPickMode=false;}
  c.style.touchAction=on?'none':'auto';stage.style.touchAction=on?'none':'auto';stage.classList.toggle('paintTarget',on);if(on&&localMode==='flash')maskPreview=true;if(localMode!=='flash')maskPreview=false;if(!on&&brushCursor)brushCursor.hidden=true;
  $('compare').hidden=on;
  ui();queueRender();
@@ -478,7 +478,7 @@ function ui(){
  const tabs=document.createElement('div');tabs.className='tabs';
  for(const [t,label] of [['FLASH','플래시'],['RETOUCH','부분 보정'],['FINISH','마무리']]){
   const b=document.createElement('button');b.className='tab '+(activeTab===t?'on':'');b.textContent=label;
-  b.onclick=()=>{activeTab=t;skinPickMode=false;if(t!=='RETOUCH'&&brushMode){setBrushMode(false);return}ui()};tabs.appendChild(b);
+  b.onclick=()=>{activeTab=t;skinPickMode=false;if(t!=='RETOUCH')maskPreview=false;if(t!=='RETOUCH'&&brushMode){setBrushMode(false);return}ui();queueRender()};tabs.appendChild(b);
  }
  q.appendChild(tabs);
  if(activeTab==='FLASH'){
@@ -584,7 +584,7 @@ async function analyze(file){
  try{await pipe.dispose?.()}catch(_e){} pipe=null;mod=null;
  $('status').textContent='Depth 완료 · 편집 화면으로 전환 중…';
  await put({original:file,ow,oh,dw,dh,depth:d.buffer});await clearEdit();
- location.replace(location.pathname+'?edit=1&v=65');
+ location.replace(location.pathname+'?edit=1&v=651');
 }
 async function savePhoto(){
  const btn=$('save'),old=btn.textContent,oldTex=texImg,oldW=c.width,oldH=c.height;
