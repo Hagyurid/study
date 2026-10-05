@@ -23,7 +23,19 @@ body.editing input[type=range]{margin:2px 0 0;height:24px}
 
 .tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin-bottom:6px}.tab,.subtabs button,.maskBtn,.valBtn{border:0;background:#1c1c1c;color:#888;border-radius:9px;padding:9px;font-weight:750}.tab.on,.subtabs button.on,.maskBtn.on{background:#eee;color:#080808}.subtabs{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin:4px 0 6px}.valBtn{padding:4px 7px;color:#ddd;font-variant-numeric:tabular-nums}.maskBtn{width:100%;margin:3px 0 5px}.compare{position:absolute;right:10px;bottom:10px;border:1px solid #555;background:#111b;color:#fff;border-radius:18px;padding:7px 10px;font-weight:700}.stage{position:relative}
 body.editing .row{padding:8px 0}body.editing .panel{padding-top:7px}
-</style></head><body><div class="wrap"><div class="top"><b>FLASH LOOK</b><div class="muted">Web V6.1 · extended mask controls</div></div>
+
+.editorHead{padding:2px 2px 8px}.editorHead b{display:block;font-size:15px}.editorHead small{display:block;color:#777;font-size:11px;margin-top:2px;font-weight:500}
+.tabs{position:sticky;top:-7px;z-index:5;background:#121212;padding:5px 0 7px;grid-template-columns:repeat(4,1fr);gap:4px}
+.tab{font-size:11px;line-height:1.15;padding:9px 3px}
+body.editing .stage{background:#0d0d0d}
+body.editing .panel{border:1px solid #202020}
+body.editing .row{padding:10px 2px}
+body.editing input[type=range]{height:30px}
+body.editing .lab{font-size:13px}
+.valBtn{min-width:70px;text-align:right;background:transparent!important;padding-right:1px}
+.subtabs{margin:0 0 5px}
+.maskBtn{background:#202020}
+</style></head><body><div class="wrap"><div class="top"><b>FLASH LOOK</b><div class="muted">Web V6.2 · redesigned mobile editor</div></div>
 <div class="stage"><canvas id="c"></canvas><span id="empty">사진을 선택하세요</span><button id="compare" class="compare" hidden>원본 보기</button></div><input id="file" type="file" accept="image/*" hidden><div class="toolbar"><button class="btn dark" id="pick">사진 선택</button><button class="btn" id="save" hidden>사진 저장</button></div>
 <div id="status" class="status">분석 시에만 AI를 로드합니다. 편집 화면에는 AI/ONNX를 로드하지 않습니다.</div>
 <div id="panel" class="panel hide"></div></div>
@@ -31,14 +43,14 @@ body.editing .row{padding:8px 0}body.editing .panel{padding-top:7px}
 const $=x=>document.getElementById(x),c=$('c'),gl=c.getContext('webgl',{alpha:false,antialias:false,preserveDrawingBuffer:false});
 let texImg,texCtl,raf=0,lastFrame=0,fullW=0,fullH=0,controlW=512,controlH=512,dragging=false,originalBlob=null;c.addEventListener('webglcontextlost',e=>{e.preventDefault();$('status').textContent='GPU 메모리가 부족해 편집 화면을 정리했습니다. 페이지를 새로고침하면 저장된 Depth로 다시 열립니다.'});
 const preset={
- flashEV:1.0,flashHighlights:.12,flashWhites:.08,specular:.18,hardness:.35,
+ flashEV:1.0,ambientEV:0,backgroundEV:0,flashHighlights:.12,flashWhites:.08,specular:.18,hardness:.35,
  edgeBlend:.65,edgeShift:0,falloff:.45,
  flashTemp:0,flashTint:0,flashSaturation:1,flashContrast:1,
  exposure:0,contrast:1,highlights:0,shadows:0,whites:0,blacks:0,
  temperature:0,tint:0,saturation:1,hue:0
 };
 const original={
- flashEV:0,flashHighlights:0,flashWhites:0,specular:0,hardness:0,
+ flashEV:0,ambientEV:0,backgroundEV:0,flashHighlights:0,flashWhites:0,specular:0,hardness:0,
  edgeBlend:0,edgeShift:0,falloff:.45,
  flashTemp:0,flashTint:0,flashSaturation:1,flashContrast:1,
  exposure:0,contrast:1,highlights:0,shadows:0,whites:0,blacks:0,
@@ -46,41 +58,45 @@ const original={
 };
 let vals={...preset};
 const groups={
- FLASH:[
-  ['flashEV','플래시 노출',0,2,'EV'],
-  ['flashHighlights','Highlights',-.6,.8,''],
-  ['flashWhites','Whites',-.6,.8,''],
-  ['specular','Specular',0,1.2,''],
-  ['hardness','Hardness',0,1,'']
+ LOOK:[
+  ['flashEV','플래시',0,2.5,'EV'],
+  ['ambientEV','주변광',-3,1,'EV'],
+  ['backgroundEV','배경 밝기',-4,1,'EV'],
+  ['specular','반사광',0,1.2,'']
  ],
- MASK:[
-  ['edgeBlend','경계 블렌딩',0,3,''],
+ SHAPE:[
+  ['hardness','빛의 경도',0,1,''],
+  ['edgeBlend','경계 부드러움',0,3,''],
   ['edgeShift','경계 위치',-3,3,''],
   ['falloff','거리 감쇠',0,3,'']
  ],
- COLOR:[
-  ['flashTemp','색온도',-1,1,''],
-  ['flashTint','Tint',-1,1,''],
-  ['flashSaturation','채도',0,1.8,''],
-  ['flashContrast','대비',.5,1.6,'']
+ FLASHTONE:[
+  ['flashHighlights','플래시 하이라이트',-.6,.8,''],
+  ['flashWhites','플래시 화이트',-.6,.8,''],
+  ['flashContrast','플래시 대비',.5,1.6,'']
+ ],
+ FLASHCOLOR:[
+  ['flashTemp','플래시 색온도',-1,1,''],
+  ['flashTint','플래시 Tint',-1,1,''],
+  ['flashSaturation','플래시 채도',0,1.8,'']
  ],
  LIGHT:[
-  ['exposure','노출',-2,2,'EV'],
-  ['contrast','대비',.5,1.7,''],
+  ['exposure','전체 노출',-2,2,'EV'],
+  ['contrast','전체 대비',.5,1.7,''],
   ['highlights','Highlights',-1,1,''],
   ['shadows','Shadows',-1,1,''],
   ['whites','Whites',-1,1,''],
   ['blacks','Blacks',-1,1,'']
  ],
  GENERALCOLOR:[
-  ['temperature','색온도',-1,1,''],
-  ['tint','Tint',-1,1,''],
-  ['saturation','채도',0,1.8,''],
-  ['hue','색조',-1,1,'']
+  ['temperature','전체 색온도',-1,1,''],
+  ['tint','전체 Tint',-1,1,''],
+  ['saturation','전체 채도',0,1.8,''],
+  ['hue','전체 색조',-1,1,'']
  ]
 };
-const controls=[...groups.FLASH,...groups.MASK,...groups.COLOR,...groups.LIGHT,...groups.GENERALCOLOR];
-let activeTab='FLASH',editSub='LIGHT',maskPreview=false,beforeHeld=false;
+const controls=[...groups.LOOK,...groups.SHAPE,...groups.FLASHTONE,...groups.FLASHCOLOR,...groups.LIGHT,...groups.GENERALCOLOR];
+let activeTab='LOOK',editSub='LIGHT',maskPreview=false,beforeHeld=false;
 const DB='flashlook-web-v6';function db(){return new Promise((ok,no)=>{let q=indexedDB.open(DB,1);q.onupgradeneeded=()=>q.result.createObjectStore('s');q.onsuccess=()=>ok(q.result);q.onerror=()=>no(q.error)})}
 async function put(v){let d=await db();return new Promise((ok,no)=>{let t=d.transaction('s','readwrite');t.objectStore('s').put(v,'last');t.oncomplete=ok;t.onerror=()=>no(t.error)})}
 async function get(){let d=await db();return new Promise((ok,no)=>{let q=d.transaction('s').objectStore('s').get('last');q.onsuccess=()=>ok(q.result);q.onerror=()=>no(q.error)})}
@@ -89,7 +105,7 @@ const vs='attribute vec2 p;varying vec2 uv;void main(){uv=vec2((p.x+1.)*.5,1.-(p
 const fs=`precision highp float;
 varying vec2 uv;
 uniform sampler2D im,ctl;
-uniform float flashEV,flashHighlights,flashWhites,specular,hardness;
+uniform float flashEV,ambientEV,backgroundEV,flashHighlights,flashWhites,specular,hardness;
 uniform float edgeBlend,edgeShift,falloff,flashTemp,flashTint,flashSaturation,flashContrast;
 uniform float exposure,contrast,highlights,shadows,whites,blacks,temperature,tint,saturation,hue;
 uniform float showMask,bypassAll;
@@ -148,7 +164,9 @@ void main(){
 
  if(showMask>.5){gl_FragColor=vec4(vec3(M),1.0);return;}
 
- vec3 col=source*exp2(exposure);
+ vec3 col=source*exp2(exposure+ambientEV);
+ // Background exposure is mask-aware: 0 = unchanged, negative values darken the non-flash region.
+ col*=exp2(backgroundEV*(1.0-M));
  col=tone(col,highlights,shadows,whites,blacks);
  col=(col-vec3(.5))*contrast+vec3(.5);
  col=tempTint(col,temperature,tint);
@@ -239,12 +257,23 @@ function applyValues(next){
  for(const [k] of controls){const sl=$('s_'+k),tx=$('v_'+k);if(sl)sl.value=vals[k];if(tx)tx.textContent=vals[k].toFixed(2)}
  queueRender();
 }
-function fmt(k,v,unit){if(unit==='EV')return (v>0?'+':'')+v.toFixed(2)+' EV';if(k==='hardness')return Math.round(v*100);if(['edgeBlend','falloff'].includes(k))return Math.round(v*100);if(k==='edgeShift')return (v>0?'+':'')+Math.round(v*100);return (v>0?'+':'')+v.toFixed(2)}
-function currentControls(){if(activeTab==='EDIT')return groups[editSub==='LIGHT'?'LIGHT':'GENERALCOLOR'];return groups[activeTab]}
+function fmt(k,v,unit){
+ if(unit==='EV')return (v>0?'+':'')+v.toFixed(2)+' EV';
+ if(k==='hardness')return Math.round(v*100);
+ if(['edgeBlend','falloff'].includes(k))return Math.round(v*100);
+ if(k==='edgeShift')return (v>0?'+':'')+Math.round(v*100);
+ return (v>0?'+':'')+v.toFixed(2)
+}
+function currentControls(){
+ if(activeTab==='LOOK')return groups.LOOK;
+ if(activeTab==='SHAPE')return groups.SHAPE;
+ if(activeTab==='TUNE')return editSub==='FLASHTONE'?groups.FLASHTONE:groups.FLASHCOLOR;
+ return editSub==='LIGHT'?groups.LIGHT:groups.GENERALCOLOR;
+}
 function buildRows(box){
  for(const [k,n,min,max,unit] of currentControls()){
   const r=document.createElement('div');r.className='row';
-  r.innerHTML=`<div class="lab"><span class="name">${n}</span><button class="valBtn" id="v_${k}">${fmt(k,vals[k],unit)}</button></div><input id="s_${k}" type="range" min="${min}" max="${max}" step=".01" value="${vals[k]}">`;
+  r.innerHTML=`<div class="lab"><span class="name">${n}</span><button class="valBtn" id="v_${k}" title="눌러서 초기화">${fmt(k,vals[k],unit)}</button></div><input id="s_${k}" type="range" min="${min}" max="${max}" step=".01" value="${vals[k]}">`;
   const sl=r.querySelector('input'),vb=r.querySelector('.valBtn');
   sl.onpointerdown=()=>{dragging=true;setRenderScale(.45)};
   const finish=()=>{if(dragging){dragging=false;setRenderScale(1)}};sl.onpointerup=finish;sl.onpointercancel=finish;sl.onchange=finish;
@@ -255,10 +284,15 @@ function buildRows(box){
 }
 function ui(){
  const q=$('panel');q.classList.remove('hide');q.innerHTML='';
+ const head=document.createElement('div');head.className='editorHead';
+ head.innerHTML=`<div><b>${activeTab==='LOOK'?'빠른 조절':activeTab==='SHAPE'?'빛 모양':activeTab==='TUNE'?'플래시 세부':'전체 보정'}</b><small>${activeTab==='LOOK'?'먼저 여기서 직광 느낌을 잡으세요':activeTab==='SHAPE'?'빛이 닿는 범위와 경계를 조절합니다':activeTab==='TUNE'?'플래시의 톤과 색만 세부 조절합니다':'사진 전체를 마무리합니다'}</small></div>`;
+ q.appendChild(head);
  const tabs=document.createElement('div');tabs.className='tabs';
- for(const t of ['FLASH','MASK','COLOR','EDIT']){const b=document.createElement('button');b.className='tab '+(activeTab===t?'on':'');b.textContent=t;b.onclick=()=>{activeTab=t;ui()};tabs.appendChild(b)}q.appendChild(tabs);
- if(activeTab==='EDIT'){const sub=document.createElement('div');sub.className='subtabs';sub.innerHTML=`<button class="${editSub==='LIGHT'?'on':''}">LIGHT</button><button class="${editSub==='COLOR'?'on':''}">COLOR</button>`;const bs=sub.querySelectorAll('button');bs[0].onclick=()=>{editSub='LIGHT';ui()};bs[1].onclick=()=>{editSub='COLOR';ui()};q.appendChild(sub)}
- if(activeTab==='MASK'){const m=document.createElement('button');m.className='maskBtn '+(maskPreview?'on':'');m.textContent=maskPreview?'마스크 보기 ON':'마스크 보기';m.onclick=()=>{maskPreview=!maskPreview;ui();queueRender()};q.appendChild(m)}
+ const labels={LOOK:'빠른 조절',SHAPE:'빛 모양',TUNE:'플래시 세부',EDIT:'전체 보정'};
+ for(const t of ['LOOK','SHAPE','TUNE','EDIT']){const b=document.createElement('button');b.className='tab '+(activeTab===t?'on':'');b.textContent=labels[t];b.onclick=()=>{activeTab=t;if(t==='TUNE'&&!['FLASHTONE','FLASHCOLOR'].includes(editSub))editSub='FLASHTONE';if(t==='EDIT'&&!['LIGHT','COLOR'].includes(editSub))editSub='LIGHT';ui()};tabs.appendChild(b)}q.appendChild(tabs);
+ if(activeTab==='TUNE'){if(!['FLASHTONE','FLASHCOLOR'].includes(editSub))editSub='FLASHTONE';const sub=document.createElement('div');sub.className='subtabs';sub.innerHTML=`<button class="${editSub==='FLASHTONE'?'on':''}">톤</button><button class="${editSub==='FLASHCOLOR'?'on':''}">색감</button>`;const bs=sub.querySelectorAll('button');bs[0].onclick=()=>{editSub='FLASHTONE';ui()};bs[1].onclick=()=>{editSub='FLASHCOLOR';ui()};q.appendChild(sub)}
+ if(activeTab==='EDIT'){if(!['LIGHT','COLOR'].includes(editSub))editSub='LIGHT';const sub=document.createElement('div');sub.className='subtabs';sub.innerHTML=`<button class="${editSub==='LIGHT'?'on':''}">빛</button><button class="${editSub==='COLOR'?'on':''}">색감</button>`;const bs=sub.querySelectorAll('button');bs[0].onclick=()=>{editSub='LIGHT';ui()};bs[1].onclick=()=>{editSub='COLOR';ui()};q.appendChild(sub)}
+ if(activeTab==='SHAPE'){const m=document.createElement('button');m.className='maskBtn '+(maskPreview?'on':'');m.textContent=maskPreview?'마스크 보기 끄기':'마스크 확인';m.onclick=()=>{maskPreview=!maskPreview;ui();queueRender()};q.appendChild(m)}
  const rows=document.createElement('div');rows.className='rows';q.appendChild(rows);buildRows(rows);
 }
 async function restore(){
@@ -325,7 +359,7 @@ async function analyze(file){
  try{await pipe.dispose?.()}catch(_e){} pipe=null;mod=null;
  $('status').textContent='Depth 완료 · 편집 화면으로 전환 중…';
  await put({original:file,ow,oh,dw,dh,depth:d.buffer});
- location.replace(location.pathname+'?edit=1&v=61');
+ location.replace(location.pathname+'?edit=1&v=62');
 }
 async function savePhoto(){
  const btn=$('save'),old=btn.textContent,oldTex=texImg,oldW=c.width,oldH=c.height;
