@@ -1,13 +1,24 @@
 <!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>FlashLook Web V5</title><style>
-*{box-sizing:border-box}body{margin:0;background:#080808;color:#eee;font:14px -apple-system,BlinkMacSystemFont,sans-serif}.wrap{max-width:720px;margin:auto;padding:18px}.top{padding:35px 0 16px}.top b{font-size:22px}.muted{color:#777;margin-top:5px}.stage{background:#111;border-radius:18px;overflow:hidden;min-height:340px;display:flex;align-items:center;justify-content:center}canvas{display:block;width:100%;height:auto}.btn{width:100%;border:0;border-radius:14px;padding:15px;margin-top:12px;font-weight:750;background:#fff;color:#000}.panel{background:#121212;border-radius:16px;padding:14px;margin-top:12px}.row{margin:11px 0}.lab{display:flex;justify-content:space-between;color:#bbb}input[type=range]{width:100%}.status{color:#8a8a8a;line-height:1.45;margin:12px 2px}.hide{display:none}
-</style></head><body><div class="wrap"><div class="top"><b>FLASH LOOK</b><div class="muted">Web V5.0.2 · one-shot depth + WebGL editor</div></div>
+*{box-sizing:border-box}body{margin:0;background:#080808;color:#eee;font:14px -apple-system,BlinkMacSystemFont,sans-serif}.wrap{max-width:720px;margin:auto;padding:18px}.top{padding:35px 0 16px}.top b{font-size:22px}.muted{color:#777;margin-top:5px}.stage{background:#111;border-radius:18px;overflow:hidden;min-height:340px;display:flex;align-items:center;justify-content:center}canvas{display:block;width:100%;height:auto}.btn{width:100%;border:0;border-radius:14px;padding:15px;margin-top:12px;font-weight:750;background:#fff;color:#000}.panel{background:#121212;border-radius:16px;padding:14px;margin-top:12px}.actions{display:flex;gap:8px;margin-bottom:14px}.mini{flex:1;border:1px solid #303030;background:#1b1b1b;color:#eee;border-radius:11px;padding:11px 10px;font-weight:700}.row{padding:12px 0;border-top:1px solid #242424}.row:first-of-type{border-top:0}.lab{display:flex;align-items:center;justify-content:space-between;gap:10px;color:#ddd}.name{font-weight:700}.valuebox{display:flex;align-items:center;gap:8px}.reset{border:1px solid #343434;background:#1b1b1b;color:#aaa;border-radius:9px;padding:7px 9px;font-size:12px}.desc{color:#777;font-size:12px;line-height:1.45;margin:5px 0 7px}input[type=range]{width:100%;touch-action:pan-y}.status{color:#8a8a8a;line-height:1.45;margin:12px 2px}.hide{display:none}
+</style></head><body><div class="wrap"><div class="top"><b>FLASH LOOK</b><div class="muted">Web V5.0.3 · smoother WebGL editor</div></div>
 <div class="stage"><canvas id="c"></canvas><span id="empty">사진을 선택하세요</span></div><input id="file" type="file" accept="image/*" hidden><button class="btn" id="pick">사진 선택</button>
 <div id="status" class="status">분석 시에만 AI를 로드합니다. 편집 화면에는 AI/ONNX를 로드하지 않습니다.</div>
 <div id="panel" class="panel hide"></div></div>
 <script type="module">
 const $=x=>document.getElementById(x),c=$('c'),gl=c.getContext('webgl',{alpha:false,antialias:false,preserveDrawingBuffer:false});
-let texImg,texDepth,raf=0,vals={flash:1.05,ambient:.72,hardness:.65,specular:.55,background:.72,warmth:0,saturation:1};
-const controls=[['flash','Flash',0,2],['ambient','Ambient',.2,1.2],['hardness','Hardness',0,1],['specular','Specular',0,1.4],['background','Background',.25,1.15],['warmth','WB',-1,1],['saturation','Saturation',0,1.5]];
+let texImg,texDepth,raf=0,fullW=0,fullH=0,depthW=256,depthH=256,dragging=false;
+const preset={flash:1.05,ambient:.72,hardness:.65,specular:.55,background:.72,warmth:0,saturation:1};
+const original={flash:0,ambient:1,hardness:0,specular:0,background:1,warmth:0,saturation:1};
+let vals={...preset};
+const controls=[
+ ['flash','플래시 광량','Flash',0,2,'정면에서 터지는 플래시 자체의 세기. 높일수록 피사체가 더 강하게 밝아짐.'],
+ ['ambient','주변광','Ambient',.2,1.2,'원래 사진에 있던 빛의 양. 낮추면 플래시 사진처럼 주변이 어두워짐.'],
+ ['hardness','빛의 경도','Hardness',0,1,'표면 각도에 따라 빛이 갈리는 정도. 높을수록 직광의 입체감이 강해짐.'],
+ ['specular','반사광','Specular',0,1.4,'피부·유리·금속처럼 반짝이는 부분의 하이라이트 강도.'],
+ ['background','배경 밝기','Background',.25,1.15,'멀리 있는 배경의 밝기. 낮출수록 피사체와 배경 분리가 강해짐.'],
+ ['warmth','색온도','WB',-1,1,'마이너스는 차갑게, 플러스는 따뜻하게 플래시 색을 조정.'],
+ ['saturation','채도','Saturation',0,1.5,'사진 전체 색의 진한 정도. 1.00이 원본 채도.']
+];
 const DB='flashlook-web-v5';function db(){return new Promise((ok,no)=>{let q=indexedDB.open(DB,1);q.onupgradeneeded=()=>q.result.createObjectStore('s');q.onsuccess=()=>ok(q.result);q.onerror=()=>no(q.error)})}
 async function put(v){let d=await db();return new Promise((ok,no)=>{let t=d.transaction('s','readwrite');t.objectStore('s').put(v,'last');t.oncomplete=ok;t.onerror=()=>no(t.error)})}
 async function get(){let d=await db();return new Promise((ok,no)=>{let q=d.transaction('s').objectStore('s').get('last');q.onsuccess=()=>ok(q.result);q.onerror=()=>no(q.error)})}
@@ -15,11 +26,47 @@ function shader(type,src){let s=gl.createShader(type);gl.shaderSource(s,src);gl.
 const vs='attribute vec2 p;varying vec2 uv;void main(){uv=vec2((p.x+1.)*.5,1.-(p.y+1.)*.5);gl_Position=vec4(p,0,1);}';
 const fs=`precision mediump float;varying vec2 uv;uniform sampler2D im,dp;uniform vec2 px;uniform float flash,ambient,hardness,specular,background,warmth,saturation;
 void main(){vec3 col=texture2D(im,uv).rgb;float d=texture2D(dp,uv).r;float dx=texture2D(dp,uv+vec2(px.x,0)).r-texture2D(dp,uv-vec2(px.x,0)).r;float dy=texture2D(dp,uv+vec2(0,px.y)).r-texture2D(dp,uv-vec2(0,px.y)).r;float face=inversesqrt(1.+32.*(dx*dx+dy*dy));float near=smoothstep(.08,.92,d);float direct=(.16+.84*near*near)*mix(.55,face,hardness);float lum=dot(col,vec3(.299,.587,.114));float chrom=max(col.r,max(col.g,col.b))-min(col.r,min(col.g,col.b));float sp=pow(max(0.,lum-.48)/.52,3.)*(1.-.55*chrom)*face;float bg=mix(background,1.,near);col*=ambient*bg;col+=col*direct*flash*.78;col+=vec3(1.)*sp*specular*.8;col.r*=1.+.09*warmth;col.b*=1.-.09*warmth;float l=dot(col,vec3(.299,.587,.114));col=mix(vec3(l),col,saturation);col=col/(1.+max(col-1.,0.)*.55);gl_FragColor=vec4(clamp(col,0.,1.),1.);}`;
-let pr=gl.createProgram();gl.attachShader(pr,shader(gl.VERTEX_SHADER,vs));gl.attachShader(pr,shader(gl.FRAGMENT_SHADER,fs));gl.linkProgram(pr);gl.useProgram(pr);let b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);let p=gl.getAttribLocation(pr,'p');gl.enableVertexAttribArray(p);gl.vertexAttribPointer(p,2,gl.FLOAT,false,0,0);
+let pr=gl.createProgram();gl.attachShader(pr,shader(gl.VERTEX_SHADER,vs));gl.attachShader(pr,shader(gl.FRAGMENT_SHADER,fs));gl.linkProgram(pr);gl.useProgram(pr);const U={im:gl.getUniformLocation(pr,'im'),dp:gl.getUniformLocation(pr,'dp'),px:gl.getUniformLocation(pr,'px')};for(const k of Object.keys(vals))U[k]=gl.getUniformLocation(pr,k);let b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);let p=gl.getAttribLocation(pr,'p');gl.enableVertexAttribArray(p);gl.vertexAttribPointer(p,2,gl.FLOAT,false,0,0);
 function texture(unit,w,h,data){let t=gl.createTexture();gl.activeTexture(gl.TEXTURE0+unit);gl.bindTexture(gl.TEXTURE_2D,t);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);if(data instanceof ImageBitmap)gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,data);else gl.texImage2D(gl.TEXTURE_2D,0,gl.LUMINANCE,w,h,0,gl.LUMINANCE,gl.UNSIGNED_BYTE,data);return t}
-function render(){raf=0;if(!texImg)return;gl.viewport(0,0,c.width,c.height);gl.useProgram(pr);gl.uniform1i(gl.getUniformLocation(pr,'im'),0);gl.uniform1i(gl.getUniformLocation(pr,'dp'),1);gl.uniform2f(gl.getUniformLocation(pr,'px'),1/c.width,1/c.height);for(const k in vals)gl.uniform1f(gl.getUniformLocation(pr,k),vals[k]);gl.drawArrays(gl.TRIANGLE_STRIP,0,4)}
-function ui(){let q=$('panel');q.classList.remove('hide');q.innerHTML='';for(const [k,n,min,max]of controls){let r=document.createElement('div');r.className='row';r.innerHTML=`<div class="lab"><span>${n}</span><span id="v_${k}">${vals[k].toFixed(2)}</span></div><input type="range" min="${min}" max="${max}" step=".01" value="${vals[k]}">`;let s=r.querySelector('input');s.oninput=()=>{vals[k]=+s.value;$('v_'+k).textContent=vals[k].toFixed(2);if(!raf)raf=requestAnimationFrame(render)};q.appendChild(r)}}
-async function restore(){let q=await get();if(!q)return false;let bm=await createImageBitmap(q.blob);c.width=q.w;c.height=q.h;$('empty').remove();texImg=texture(0,q.w,q.h,bm);bm.close();texDepth=texture(1,q.dw,q.dh,new Uint8Array(q.depth));$('status').textContent='편집 모드 · AI 모델/Transformers.js 미로드 · WebGL GPU 렌더링';ui();render();return true}
+function render(){
+ raf=0;if(!texImg)return;
+ gl.viewport(0,0,c.width,c.height);gl.useProgram(pr);
+ gl.uniform1i(U.im,0);gl.uniform1i(U.dp,1);
+ gl.uniform2f(U.px,1/Math.max(1,depthW),1/Math.max(1,depthH));
+ for(const k in vals)gl.uniform1f(U[k],vals[k]);
+ gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+}
+function queueRender(){if(!raf)raf=requestAnimationFrame(render)}
+function setRenderScale(scale){
+ if(!fullW||!fullH)return;
+ const w=Math.max(320,Math.round(fullW*scale)),h=Math.max(240,Math.round(fullH*scale));
+ if(c.width!==w||c.height!==h){c.width=w;c.height=h;queueRender()}
+}
+function applyValues(next){
+ Object.assign(vals,next);
+ for(const [k] of controls){const sl=$('s_'+k),tx=$('v_'+k);if(sl)sl.value=vals[k];if(tx)tx.textContent=vals[k].toFixed(2)}
+ queueRender();
+}
+function ui(){
+ let q=$('panel');q.classList.remove('hide');q.innerHTML='';
+ let actions=document.createElement('div');actions.className='actions';
+ actions.innerHTML='<button class="mini" id="resetAll">전체 원본</button><button class="mini" id="presetAll">플래시 기본값</button>';
+ q.appendChild(actions);
+ $('resetAll').onclick=()=>applyValues(original);
+ $('presetAll').onclick=()=>applyValues(preset);
+ for(const [k,n,en,min,max,desc]of controls){
+   let r=document.createElement('div');r.className='row';
+   r.innerHTML=`<div class="lab"><div><span class="name">${n}</span> <span style="color:#5f5f5f;font-size:11px">${en}</span></div><div class="valuebox"><span id="v_${k}">${vals[k].toFixed(2)}</span><button class="reset" type="button">원본</button></div></div><div class="desc">${desc}</div><input id="s_${k}" type="range" min="${min}" max="${max}" step=".01" value="${vals[k]}">`;
+   let sl=r.querySelector('input'),reset=r.querySelector('.reset');
+   sl.onpointerdown=()=>{dragging=true;setRenderScale(.55)};
+   const finish=()=>{if(!dragging)return;dragging=false;setRenderScale(1)};
+   sl.onpointerup=finish;sl.onpointercancel=finish;sl.onchange=finish;
+   sl.oninput=()=>{vals[k]=+sl.value;$('v_'+k).textContent=vals[k].toFixed(2);queueRender()};
+   reset.onclick=()=>{vals[k]=original[k];sl.value=vals[k];$('v_'+k).textContent=vals[k].toFixed(2);queueRender()};
+   q.appendChild(r);
+ }
+}
+async function restore(){let q=await get();if(!q)return false;let bm=await createImageBitmap(q.blob);fullW=q.w;fullH=q.h;depthW=q.dw;depthH=q.dh;c.width=fullW;c.height=fullH;$('empty').remove();texImg=texture(0,q.w,q.h,bm);bm.close();texDepth=texture(1,q.dw,q.dh,new Uint8Array(q.depth));$('status').textContent='편집 모드 · AI 모델/Transformers.js 미로드 · WebGL GPU 렌더링';ui();render();return true}
 async function analyze(file){
  $('status').textContent='사진을 작게 준비하는 중…';
  let bm=await createImageBitmap(file),ow=bm.width,oh=bm.height;
@@ -47,7 +94,7 @@ async function analyze(file){
  try{await pipe.dispose?.()}catch(_e){} pipe=null;mod=null;
  $('status').textContent='Depth 완료 · 편집 화면으로 전환 중…';
  await put({blob,w,h,dw,dh,depth:d.buffer});
- location.replace(location.pathname+'?edit=1&v=502');
+ location.replace(location.pathname+'?edit=1&v=503');
 }
 $('pick').onclick=()=>$('file').click();$('file').onchange=async e=>{try{await analyze(e.target.files[0])}catch(err){$('status').textContent='분석 실패: '+err.message;console.error(err)}};
 if(new URLSearchParams(location.search).get('edit')==='1')restore();
