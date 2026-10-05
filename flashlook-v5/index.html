@@ -1,17 +1,37 @@
 <!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>FlashLook Web V5</title><style>
-*{box-sizing:border-box}body{margin:0;background:#080808;color:#eee;font:14px -apple-system,BlinkMacSystemFont,sans-serif}.wrap{max-width:720px;margin:auto;padding:18px}.top{padding:35px 0 16px}.top b{font-size:22px}.muted{color:#777;margin-top:5px}.stage{background:#111;border-radius:18px;overflow:hidden;min-height:340px;display:flex;align-items:center;justify-content:center}canvas{display:block;width:100%;height:auto}.btn{width:100%;border:0;border-radius:14px;padding:15px;margin-top:12px;font-weight:750;background:#fff;color:#000}.btn.dark{background:#1b1b1b;color:#eee;border:1px solid #303030}.panel{background:#121212;border-radius:16px;padding:14px;margin-top:12px}.actions{display:flex;gap:8px;margin-bottom:14px}.mini{flex:1;border:1px solid #303030;background:#1b1b1b;color:#eee;border-radius:11px;padding:11px 10px;font-weight:700}.row{padding:12px 0;border-top:1px solid #242424}.row:first-of-type{border-top:0}.lab{display:flex;align-items:center;justify-content:space-between;gap:10px;color:#ddd}.name{font-weight:700}.valuebox{display:flex;align-items:center;gap:8px}.reset{border:1px solid #343434;background:#1b1b1b;color:#aaa;border-radius:9px;padding:7px 9px;font-size:12px}.desc{color:#777;font-size:12px;line-height:1.45;margin:5px 0 7px}input[type=range]{width:100%;touch-action:pan-y}.status{color:#8a8a8a;line-height:1.45;margin:12px 2px}.hide{display:none}
-</style></head><body><div class="wrap"><div class="top"><b>FLASH LOOK</b><div class="muted">Web V5.1.2 · softened edge-protected control map</div></div>
-<div class="stage"><canvas id="c"></canvas><span id="empty">사진을 선택하세요</span></div><input id="file" type="file" accept="image/*" hidden><button class="btn dark" id="pick">사진 선택</button><button class="btn" id="save" hidden>사진 저장</button>
+*{box-sizing:border-box}body{margin:0;background:#080808;color:#eee;font:14px -apple-system,BlinkMacSystemFont,sans-serif}.wrap{max-width:720px;margin:auto;padding:18px}.top{padding:35px 0 16px}.top b{font-size:22px}.muted{color:#777;margin-top:5px}.stage{background:#111;border-radius:18px;overflow:hidden;min-height:340px;display:flex;align-items:center;justify-content:center}canvas{display:block;width:100%;height:auto}.btn{width:100%;border:0;border-radius:14px;padding:15px;margin-top:12px;font-weight:750;background:#fff;color:#000}.btn.dark{background:#1b1b1b;color:#eee;border:1px solid #303030}.panel{background:#121212;border-radius:16px;padding:14px;margin-top:12px}.actions{display:flex;gap:8px;margin-bottom:14px}.mini{flex:1;border:1px solid #303030;background:#1b1b1b;color:#eee;border-radius:11px;padding:11px 10px;font-weight:700}.row{padding:12px 0;border-top:1px solid #242424}.row:first-of-type{border-top:0}.lab{display:flex;align-items:center;justify-content:space-between;gap:10px;color:#ddd}.name{font-weight:700}.valuebox{display:flex;align-items:center;gap:8px}.reset{border:1px solid #343434;background:#1b1b1b;color:#aaa;border-radius:9px;padding:7px 9px;font-size:12px}.desc{color:#777;font-size:12px;line-height:1.45;margin:5px 0 7px}input[type=range]{width:100%;touch-action:pan-y}.status{color:#8a8a8a;line-height:1.45;margin:12px 2px}.hide{display:none}[hidden]{display:none!important}
+.toolbar{display:flex;gap:8px}.toolbar .btn{flex:1}
+body.editing{overflow:hidden}
+body.editing .wrap{height:100dvh;max-width:720px;padding:8px 10px;display:flex;flex-direction:column;overflow:hidden}
+body.editing .top{padding:2px 0 6px;flex:0 0 auto}
+body.editing .top b{font-size:16px}
+body.editing .muted{font-size:10px;margin-top:1px}
+body.editing .stage{flex:0 0 min(40dvh,360px);min-height:0;border-radius:12px}
+body.editing .stage canvas{width:auto;height:auto;max-width:100%;max-height:100%}
+body.editing .toolbar{flex:0 0 auto}
+body.editing .toolbar .btn{margin-top:7px;padding:10px;border-radius:11px}
+body.editing .status{flex:0 0 auto;margin:5px 2px;font-size:10px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+body.editing .panel{flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;margin-top:0;padding:8px 10px calc(12px + env(safe-area-inset-bottom));border-radius:12px}
+body.editing .actions{margin-bottom:4px;gap:6px}
+body.editing .mini{padding:8px 7px;font-size:12px;border-radius:9px}
+body.editing .row{padding:6px 0}
+body.editing .desc{display:none}
+body.editing .lab{font-size:12px}
+body.editing .reset{padding:5px 7px;font-size:11px}
+body.editing input[type=range]{margin:2px 0 0;height:24px}
+@media (max-height:700px){body.editing .stage{flex-basis:34dvh}}
+</style></head><body><div class="wrap"><div class="top"><b>FLASH LOOK</b><div class="muted">Web V5.2 · brighten-only flash + single-screen editor</div></div>
+<div class="stage"><canvas id="c"></canvas><span id="empty">사진을 선택하세요</span></div><input id="file" type="file" accept="image/*" hidden><div class="toolbar"><button class="btn dark" id="pick">사진 선택</button><button class="btn" id="save" hidden>사진 저장</button></div>
 <div id="status" class="status">분석 시에만 AI를 로드합니다. 편집 화면에는 AI/ONNX를 로드하지 않습니다.</div>
 <div id="panel" class="panel hide"></div></div>
 <script type="module">
 const $=x=>document.getElementById(x),c=$('c'),gl=c.getContext('webgl',{alpha:false,antialias:false,preserveDrawingBuffer:false});
 let texImg,texCtl,raf=0,lastFrame=0,fullW=0,fullH=0,controlW=512,controlH=512,dragging=false,originalBlob=null;c.addEventListener('webglcontextlost',e=>{e.preventDefault();$('status').textContent='GPU 메모리가 부족해 편집 화면을 정리했습니다. 페이지를 새로고침하면 저장된 Depth로 다시 열립니다.'});
-const preset={flash:1.05,ambient:.72,hardness:.65,specular:.55,background:.72,warmth:0,saturation:1};
+const preset={flash:1.0,ambient:1,hardness:.65,specular:.45,background:1,warmth:0,saturation:1};
 const original={flash:0,ambient:1,hardness:0,specular:0,background:1,warmth:0,saturation:1};
 let vals={...preset};
 const controls=[
- ['flash','플래시 광량','Flash',0,2,'정면에서 터지는 플래시 자체의 세기. 높일수록 피사체가 더 강하게 밝아짐.'],
+ ['flash','플래시 광량','Flash',0,2,'원본 위에 빛만 추가합니다. 이 슬라이더 자체는 어떤 영역도 어둡게 하지 않습니다.'],
  ['ambient','주변광','Ambient',.2,1.2,'원래 사진에 있던 빛의 양. 낮추면 플래시 사진처럼 주변이 어두워짐.'],
  ['hardness','빛의 경도','Hardness',0,1,'표면 각도에 따라 빛이 갈리는 정도. 높을수록 직광의 입체감이 강해짐.'],
  ['specular','반사광','Specular',0,1.4,'피부·유리·금속처럼 반짝이는 부분의 하이라이트 강도.'],
@@ -29,7 +49,7 @@ varying vec2 uv;
 uniform sampler2D im,ctl;
 uniform float flash,ambient,hardness,specular,background,warmth,saturation;
 void main(){
- vec3 col=texture2D(im,uv).rgb;
+ vec3 source=texture2D(im,uv).rgb;
  vec4 ctrl=texture2D(ctl,uv);
  float nearv=ctrl.r;
  float facing=ctrl.g;
@@ -39,20 +59,29 @@ void main(){
  float p=protect*protect;
  float safeFacing=mix(facing,1.0,p);
  float safeNear=mix(nearv,0.5+(nearv-0.5)*0.25,p);
-
  float direct=(0.16+0.84*safeNear*safeNear)*mix(0.55,safeFacing,hardness);
  direct*=1.0-p*0.85;
- float specSafe=specBase*(1.0-p*0.90);
 
+ // Ambient/background are independent manual controls.
  float bg=mix(background,1.0,safeNear);
- col*=ambient*bg;
- col+=col*direct*flash*0.78;
- col+=vec3(1.0)*specSafe*specular*0.72;
+ vec3 col=source*ambient*bg;
 
+ // Base colour controls.
  col.r*=1.0+0.09*warmth;
  col.b*=1.0-0.09*warmth;
  float l=dot(col,vec3(0.299,0.587,0.114));
  col=mix(vec3(l),col,saturation);
+
+ // Flash is strictly additive: increasing Flash can only add light.
+ vec3 flashTint=vec3(1.0+0.035*warmth,1.0,1.0-0.035*warmth);
+ vec3 flashAdd=mix(source,flashTint,0.22)*max(0.0,direct*flash*0.62);
+ col+=max(flashAdd,vec3(0.0));
+
+ // Specular is also additive and remains its own control.
+ float specSafe=specBase*(1.0-p*0.90);
+ col+=vec3(1.0)*max(0.0,specSafe*specular*0.60);
+
+ // Monotonic highlight roll-off; it does not turn added flash into darkening.
  col=col/(1.0+max(col-1.0,0.0)*0.55);
  gl_FragColor=vec4(clamp(col,0.0,1.0),1.0);
 }`;
@@ -178,7 +207,8 @@ function ui(){
  }
 }
 async function restore(){
- let q=await get();if(!q)return false;
+ document.body.classList.add('editing');
+ let q=await get();if(!q){document.body.classList.remove('editing');return false;}
  originalBlob=q.original||q.blob;
  const depth=new Uint8Array(q.depth),dw=q.dw,dh=q.dh;
  const sourceW=q.ow||q.w,sourceH=q.oh||q.h;
@@ -214,7 +244,7 @@ async function restore(){
  const e=$('empty');if(e)e.remove();
  texImg=texture(0,rw,rh,bm);bm.close();
  $('save').hidden=false;$('pick').textContent='다른 사진 선택';
- $('status').textContent=`편집 모드 · ${rw}×${rh}px · 512px 경계보호 Control Map · 실시간 Depth 재계산 없음`;
+ $('status').textContent=`편집 ${rw}×${rh}px · 사진을 보면서 아래 슬라이더를 조절하세요`;
  ui();render();return true;
 }
 async function analyze(file){
@@ -240,7 +270,7 @@ async function analyze(file){
  try{await pipe.dispose?.()}catch(_e){} pipe=null;mod=null;
  $('status').textContent='Depth 완료 · 편집 화면으로 전환 중…';
  await put({original:file,ow,oh,dw,dh,depth:d.buffer});
- location.replace(location.pathname+'?edit=1&v=512');
+ location.replace(location.pathname+'?edit=1&v=52');
 }
 async function savePhoto(){
  const btn=$('save'),old=btn.textContent,oldTex=texImg,oldW=c.width,oldH=c.height;
