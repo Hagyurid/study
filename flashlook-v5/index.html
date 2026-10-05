@@ -1,6 +1,6 @@
 <!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>FlashLook Web V5</title><style>
 *{box-sizing:border-box}body{margin:0;background:#080808;color:#eee;font:14px -apple-system,BlinkMacSystemFont,sans-serif}.wrap{max-width:720px;margin:auto;padding:18px}.top{padding:35px 0 16px}.top b{font-size:22px}.muted{color:#777;margin-top:5px}.stage{background:#111;border-radius:18px;overflow:hidden;min-height:340px;display:flex;align-items:center;justify-content:center}canvas{display:block;width:100%;height:auto}.btn{width:100%;border:0;border-radius:14px;padding:15px;margin-top:12px;font-weight:750;background:#fff;color:#000}.btn.dark{background:#1b1b1b;color:#eee;border:1px solid #303030}.panel{background:#121212;border-radius:16px;padding:14px;margin-top:12px}.actions{display:flex;gap:8px;margin-bottom:14px}.mini{flex:1;border:1px solid #303030;background:#1b1b1b;color:#eee;border-radius:11px;padding:11px 10px;font-weight:700}.row{padding:12px 0;border-top:1px solid #242424}.row:first-of-type{border-top:0}.lab{display:flex;align-items:center;justify-content:space-between;gap:10px;color:#ddd}.name{font-weight:700}.valuebox{display:flex;align-items:center;gap:8px}.reset{border:1px solid #343434;background:#1b1b1b;color:#aaa;border-radius:9px;padding:7px 9px;font-size:12px}.desc{color:#777;font-size:12px;line-height:1.45;margin:5px 0 7px}input[type=range]{width:100%;touch-action:pan-y}.status{color:#8a8a8a;line-height:1.45;margin:12px 2px}.hide{display:none}
-</style></head><body><div class="wrap"><div class="top"><b>FLASH LOOK</b><div class="muted">Web V5.0.5 · original-source hi-res export</div></div>
+</style></head><body><div class="wrap"><div class="top"><b>FLASH LOOK</b><div class="muted">Web V5.0.6 · up to 16MP original-source export</div></div>
 <div class="stage"><canvas id="c"></canvas><span id="empty">사진을 선택하세요</span></div><input id="file" type="file" accept="image/*" hidden><button class="btn dark" id="pick">사진 선택</button><button class="btn" id="save" hidden>사진 저장</button>
 <div id="status" class="status">분석 시에만 AI를 로드합니다. 편집 화면에는 AI/ONNX를 로드하지 않습니다.</div>
 <div id="panel" class="panel hide"></div></div>
@@ -94,7 +94,7 @@ async function analyze(file){
  try{await pipe.dispose?.()}catch(_e){} pipe=null;mod=null;
  $('status').textContent='Depth 완료 · 편집 화면으로 전환 중…';
  await put({blob,original:file,w,h,dw,dh,depth:d.buffer});
- location.replace(location.pathname+'?edit=1&v=505');
+ location.replace(location.pathname+'?edit=1&v=506');
 }
 async function savePhoto(){
  const btn=$('save'),old=btn.textContent,oldTex=texImg,oldW=c.width,oldH=c.height;
@@ -105,9 +105,9 @@ async function savePhoto(){
   const source=originalBlob||((await get())?.original)||((await get())?.blob);
   if(!source)throw Error('원본 파일을 찾지 못했습니다');
   bm=await createImageBitmap(source);
-  const maxExportPixels=8000000;
-  const sc=Math.min(1,Math.sqrt(maxExportPixels/(bm.width*bm.height)));
-  const ew=Math.max(1,Math.round(bm.width*sc)),eh=Math.max(1,Math.round(bm.height*sc));
+  const maxExportPixels=16000000;
+  const sourceW=bm.width,sourceH=bm.height;const sc=Math.min(1,Math.sqrt(maxExportPixels/(sourceW*sourceH)));
+  const ew=Math.max(1,Math.round(sourceW*sc)),eh=Math.max(1,Math.round(sourceH*sc));
   c.width=ew;c.height=eh;
   exportTex=texture(0,ew,eh,bm);texImg=exportTex;
   render();
@@ -117,14 +117,14 @@ async function savePhoto(){
   if(navigator.canShare&&navigator.canShare({files:[file]})){
    try{
     await navigator.share({files:[file],title:'FlashLook'});
-    $('status').textContent='고화질 결과 생성 완료 · 공유 메뉴에서 ‘이미지 저장’을 선택하세요.';
+    $('status').textContent=`고화질 결과 ${ew}×${eh}px 생성 완료`+(sc<1?` · 원본 ${sourceW}×${sourceH}px에서 16MP 제한 적용`:' · 원본 픽셀 크기 유지');
     return;
    }catch(e){if(e&&e.name==='AbortError')return}
   }
   const url=URL.createObjectURL(blob),link=document.createElement('a');
   link.href=url;link.download=name;document.body.appendChild(link);link.click();link.remove();
   setTimeout(()=>URL.revokeObjectURL(url),5000);
-  $('status').textContent='고화질 JPEG 저장을 시작했습니다.';
+  $('status').textContent=`JPEG ${ew}×${eh}px 저장 시작`+(sc<1?` · 원본 ${sourceW}×${sourceH}px`:' · 원본 픽셀 크기 유지');
  }catch(e){
   console.error(e);$('status').textContent='저장 실패: '+e.message;
  }finally{
