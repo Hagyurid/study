@@ -38,13 +38,13 @@ body.editing .lab{font-size:13px}
 
 .maskToolRow,.brushModes{display:grid;grid-template-columns:1fr 1fr;gap:6px}.brushEditor{margin:7px 0 3px;padding:10px;border:1px solid #292929;border-radius:12px;background:#0d0d0d}.brushModes button,.resetMask{border:0;border-radius:9px;padding:9px;background:#202020;color:#aaa;font-weight:750}.brushModes button.on{background:#eee;color:#080808}.brushEditor label{display:block;color:#bbb;font-size:12px;font-weight:700;margin-top:10px}.brushEditor label span{float:right;color:#888}.brushEditor input{display:block;width:100%;margin-top:4px}.resetMask{width:100%;margin-top:10px}.brushHint{font-size:11px;color:#777;text-align:center;margin-top:8px}.maskToolRow .maskBtn{margin:3px 0}
 body.brushing .stage{flex-basis:min(55dvh,520px)}
-</style></head><body><div class="wrap"><div class="top"><b>FLASH LOOK</b><div class="muted">Web V6.3.1 · fine mask brush strength</div></div>
+</style></head><body><div class="wrap"><div class="top"><b>FLASH LOOK</b><div class="muted">Web V6.3.2 · soft opacity mask brush</div></div>
 <div class="stage"><canvas id="c"></canvas><span id="empty">사진을 선택하세요</span><button id="compare" class="compare" hidden>원본 보기</button></div><input id="file" type="file" accept="image/*" hidden><div class="toolbar"><button class="btn dark" id="pick">사진 선택</button><button class="btn" id="save" hidden>사진 저장</button></div>
 <div id="status" class="status">분석 시에만 AI를 로드합니다. 편집 화면에는 AI/ONNX를 로드하지 않습니다.</div>
 <div id="panel" class="panel hide"></div></div>
 <script type="module">
 const $=x=>document.getElementById(x),c=$('c'),gl=c.getContext('webgl',{alpha:false,antialias:false,preserveDrawingBuffer:false});
-let texImg,texCtl,raf=0,lastFrame=0,fullW=0,fullH=0,controlW=512,controlH=512,dragging=false,originalBlob=null,controlData=null,autoControlData=null,userMask=null,brushMode=false,brushErase=true,brushSize=.10,brushSoft=.55,brushStrength=.18,painting=false,lastBrushPoint=null;c.addEventListener('webglcontextlost',e=>{e.preventDefault();$('status').textContent='GPU 메모리가 부족해 편집 화면을 정리했습니다. 페이지를 새로고침하면 저장된 Depth로 다시 열립니다.'});
+let texImg,texCtl,raf=0,lastFrame=0,fullW=0,fullH=0,controlW=512,controlH=512,dragging=false,originalBlob=null,controlData=null,autoControlData=null,userMask=null,brushMode=false,brushErase=true,brushSize=.10,brushSoft=.72,brushStrength=.16,painting=false,lastBrushPoint=null;c.addEventListener('webglcontextlost',e=>{e.preventDefault();$('status').textContent='GPU 메모리가 부족해 편집 화면을 정리했습니다. 페이지를 새로고침하면 저장된 Depth로 다시 열립니다.'});
 const preset={
  flashEV:1.0,ambientEV:0,backgroundEV:0,flashHighlights:.12,flashWhites:.08,specular:.18,hardness:.35,
  edgeBlend:.65,edgeShift:0,falloff:.45,
@@ -260,15 +260,17 @@ function brushAt(px,py){
  const x0=Math.max(0,Math.floor(cx-r)),x1=Math.min(controlW-1,Math.ceil(cx+r)),y0=Math.max(0,Math.floor(cy-r)),y1=Math.min(controlH-1,Math.ceil(cy+r));
  for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++){
   const d=Math.hypot(x-cx,y-cy)/r;if(d>1)continue;
-  const featherStart=Math.max(0.02,1-brushSoft),a=d<=featherStart?1:1-smoothstep(featherStart,1,d);
-  const effectiveStrength=brushStrength*brushStrength;const amt=a*effectiveStrength,i=y*controlW+x;
-  userMask[i]=brushErase?Math.max(0,userMask[i]-amt):Math.min(1,userMask[i]+amt);
+  const softness=Math.max(.08,brushSoft);
+  const radial=1-smoothstep(0.0,1.0,d);
+  const shaped=Math.pow(radial,mix(3.2,.72,softness));
+  const alpha=Math.min(.55,shaped*brushStrength),i=y*controlW+x;
+  userMask[i]=brushErase?userMask[i]*(1-alpha):userMask[i]+(1-userMask[i])*alpha;
  }
  rebuildSoftMask();uploadControl();
 }
 function brushLine(a,b){
  if(!a){brushAt(b.x,b.y);return}
- const rect=c.getBoundingClientRect(),rpx=Math.max(5,brushSize*Math.min(rect.width,rect.height)*.35),dist=Math.hypot(b.x-a.x,b.y-a.y),steps=Math.max(1,Math.ceil(dist/rpx));
+ const rect=c.getBoundingClientRect(),rpx=Math.max(5,brushSize*Math.min(rect.width,rect.height)*.55),dist=Math.hypot(b.x-a.x,b.y-a.y),steps=Math.max(1,Math.ceil(dist/rpx));
  for(let i=1;i<=steps;i++){const t=i/steps;brushAt(a.x+(b.x-a.x)*t,a.y+(b.y-a.y)*t)}
 }
 function setBrushMode(on){
@@ -356,7 +358,7 @@ function ui(){
    ed.innerHTML=`<div class="brushModes"><button id="erase" class="${brushErase?'on':''}">지우기</button><button id="restoreBrush" class="${!brushErase?'on':''}">복원</button></div>
    <label>브러시 크기 <span>${Math.round(brushSize*100)}</span><input id="brushSize" type="range" min=".02" max=".30" step=".01" value="${brushSize}"></label>
    <label>부드러움 <span>${Math.round(brushSoft*100)}</span><input id="brushSoft" type="range" min="0" max="1" step=".01" value="${brushSoft}"></label>
-   <label>강도 <span>${Math.round(brushStrength*100)}</span><input id="brushStrength" type="range" min=".005" max="1" step=".005" value="${brushStrength}"></label>
+   <label>불투명도 <span>${Math.round(brushStrength*100)}</span><input id="brushStrength" type="range" min=".01" max=".60" step=".01" value="${brushStrength}"></label>
    <button id="resetMask" class="resetMask">수동 수정 전체 초기화</button><div class="brushHint">사진을 손가락으로 문질러 플래시 영역을 수정하세요.</div>`;
    q.appendChild(ed);
    ed.querySelector('#erase').onclick=()=>{brushErase=true;ui()};ed.querySelector('#restoreBrush').onclick=()=>{brushErase=false;ui()};
@@ -431,7 +433,7 @@ async function analyze(file){
  try{await pipe.dispose?.()}catch(_e){} pipe=null;mod=null;
  $('status').textContent='Depth 완료 · 편집 화면으로 전환 중…';
  await put({original:file,ow,oh,dw,dh,depth:d.buffer});
- location.replace(location.pathname+'?edit=1&v=631');
+ location.replace(location.pathname+'?edit=1&v=632');
 }
 async function savePhoto(){
  const btn=$('save'),old=btn.textContent,oldTex=texImg,oldW=c.width,oldH=c.height;
