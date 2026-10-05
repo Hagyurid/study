@@ -1,0 +1,359 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>FlashLook Web V6</title><style>
+*{box-sizing:border-box}body{margin:0;background:#080808;color:#eee;font:14px -apple-system,BlinkMacSystemFont,sans-serif}.wrap{max-width:720px;margin:auto;padding:18px}.top{padding:35px 0 16px}.top b{font-size:22px}.muted{color:#777;margin-top:5px}.stage{background:#111;border-radius:18px;overflow:hidden;min-height:340px;display:flex;align-items:center;justify-content:center}canvas{display:block;width:100%;height:auto}.btn{width:100%;border:0;border-radius:14px;padding:15px;margin-top:12px;font-weight:750;background:#fff;color:#000}.btn.dark{background:#1b1b1b;color:#eee;border:1px solid #303030}.panel{background:#121212;border-radius:16px;padding:14px;margin-top:12px}.actions{display:flex;gap:8px;margin-bottom:14px}.mini{flex:1;border:1px solid #303030;background:#1b1b1b;color:#eee;border-radius:11px;padding:11px 10px;font-weight:700}.sectionTitle{position:sticky;top:0;z-index:2;margin:10px -2px 2px;padding:9px 4px 7px;background:#121212;color:#fff;font-size:12px;font-weight:800;border-bottom:1px solid #333}.sectionTitle:first-of-type{margin-top:0}.row{padding:12px 0;border-top:1px solid #242424}.row:first-of-type{border-top:0}.lab{display:flex;align-items:center;justify-content:space-between;gap:10px;color:#ddd}.name{font-weight:700}.valuebox{display:flex;align-items:center;gap:8px}.reset{border:1px solid #343434;background:#1b1b1b;color:#aaa;border-radius:9px;padding:7px 9px;font-size:12px}.desc{color:#777;font-size:12px;line-height:1.45;margin:5px 0 7px}input[type=range]{width:100%;touch-action:pan-y}.status{color:#8a8a8a;line-height:1.45;margin:12px 2px}.hide{display:none}[hidden]{display:none!important}
+.toolbar{display:flex;gap:8px}.toolbar .btn{flex:1}
+body.editing{overflow:hidden}
+body.editing .wrap{height:100dvh;max-width:720px;padding:8px 10px;display:flex;flex-direction:column;overflow:hidden}
+body.editing .top{padding:2px 0 6px;flex:0 0 auto}
+body.editing .top b{font-size:16px}
+body.editing .muted{font-size:10px;margin-top:1px}
+body.editing .stage{flex:0 0 min(40dvh,360px);min-height:0;border-radius:12px}
+body.editing .stage canvas{width:auto;height:auto;max-width:100%;max-height:100%}
+body.editing .toolbar{flex:0 0 auto}
+body.editing .toolbar .btn{margin-top:7px;padding:10px;border-radius:11px}
+body.editing .status{flex:0 0 auto;margin:5px 2px;font-size:10px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+body.editing .panel{flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;margin-top:0;padding:8px 10px calc(12px + env(safe-area-inset-bottom));border-radius:12px}
+body.editing .actions{margin-bottom:4px;gap:6px}
+body.editing .mini{padding:8px 7px;font-size:12px;border-radius:9px}
+body.editing .row{padding:6px 0}
+body.editing .desc{display:none}
+body.editing .lab{font-size:12px}
+body.editing .reset{padding:5px 7px;font-size:11px}
+body.editing input[type=range]{margin:2px 0 0;height:24px}
+@media (max-height:700px){body.editing .stage{flex-basis:34dvh}}
+
+.tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin-bottom:6px}.tab,.subtabs button,.maskBtn,.valBtn{border:0;background:#1c1c1c;color:#888;border-radius:9px;padding:9px;font-weight:750}.tab.on,.subtabs button.on,.maskBtn.on{background:#eee;color:#080808}.subtabs{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin:4px 0 6px}.valBtn{padding:4px 7px;color:#ddd;font-variant-numeric:tabular-nums}.maskBtn{width:100%;margin:3px 0 5px}.compare{position:absolute;right:10px;bottom:10px;border:1px solid #555;background:#111b;color:#fff;border-radius:18px;padding:7px 10px;font-weight:700}.stage{position:relative}
+body.editing .row{padding:8px 0}body.editing .panel{padding-top:7px}
+</style></head><body><div class="wrap"><div class="top"><b>FLASH LOOK</b><div class="muted">Web V6.0 · exposure-based flash engine</div></div>
+<div class="stage"><canvas id="c"></canvas><span id="empty">사진을 선택하세요</span><button id="compare" class="compare" hidden>원본 보기</button></div><input id="file" type="file" accept="image/*" hidden><div class="toolbar"><button class="btn dark" id="pick">사진 선택</button><button class="btn" id="save" hidden>사진 저장</button></div>
+<div id="status" class="status">분석 시에만 AI를 로드합니다. 편집 화면에는 AI/ONNX를 로드하지 않습니다.</div>
+<div id="panel" class="panel hide"></div></div>
+<script type="module">
+const $=x=>document.getElementById(x),c=$('c'),gl=c.getContext('webgl',{alpha:false,antialias:false,preserveDrawingBuffer:false});
+let texImg,texCtl,raf=0,lastFrame=0,fullW=0,fullH=0,controlW=512,controlH=512,dragging=false,originalBlob=null;c.addEventListener('webglcontextlost',e=>{e.preventDefault();$('status').textContent='GPU 메모리가 부족해 편집 화면을 정리했습니다. 페이지를 새로고침하면 저장된 Depth로 다시 열립니다.'});
+const preset={
+ flashEV:1.0,flashHighlights:.12,flashWhites:.08,specular:.18,hardness:.35,
+ edgeBlend:.65,edgeShift:0,falloff:.45,
+ flashTemp:0,flashTint:0,flashSaturation:1,flashContrast:1,
+ exposure:0,contrast:1,highlights:0,shadows:0,whites:0,blacks:0,
+ temperature:0,tint:0,saturation:1,hue:0
+};
+const original={
+ flashEV:0,flashHighlights:0,flashWhites:0,specular:0,hardness:0,
+ edgeBlend:0,edgeShift:0,falloff:.45,
+ flashTemp:0,flashTint:0,flashSaturation:1,flashContrast:1,
+ exposure:0,contrast:1,highlights:0,shadows:0,whites:0,blacks:0,
+ temperature:0,tint:0,saturation:1,hue:0
+};
+let vals={...preset};
+const groups={
+ FLASH:[
+  ['flashEV','플래시 노출',0,2,'EV'],
+  ['flashHighlights','Highlights',-.6,.8,''],
+  ['flashWhites','Whites',-.6,.8,''],
+  ['specular','Specular',0,1.2,''],
+  ['hardness','Hardness',0,1,'']
+ ],
+ MASK:[
+  ['edgeBlend','경계 블렌딩',0,1,''],
+  ['edgeShift','경계 위치',-1,1,''],
+  ['falloff','거리 감쇠',0,1,'']
+ ],
+ COLOR:[
+  ['flashTemp','색온도',-1,1,''],
+  ['flashTint','Tint',-1,1,''],
+  ['flashSaturation','채도',0,1.8,''],
+  ['flashContrast','대비',.5,1.6,'']
+ ],
+ LIGHT:[
+  ['exposure','노출',-2,2,'EV'],
+  ['contrast','대비',.5,1.7,''],
+  ['highlights','Highlights',-1,1,''],
+  ['shadows','Shadows',-1,1,''],
+  ['whites','Whites',-1,1,''],
+  ['blacks','Blacks',-1,1,'']
+ ],
+ GENERALCOLOR:[
+  ['temperature','색온도',-1,1,''],
+  ['tint','Tint',-1,1,''],
+  ['saturation','채도',0,1.8,''],
+  ['hue','색조',-1,1,'']
+ ]
+};
+const controls=[...groups.FLASH,...groups.MASK,...groups.COLOR,...groups.LIGHT,...groups.GENERALCOLOR];
+let activeTab='FLASH',editSub='LIGHT',maskPreview=false,beforeHeld=false;
+const DB='flashlook-web-v6';function db(){return new Promise((ok,no)=>{let q=indexedDB.open(DB,1);q.onupgradeneeded=()=>q.result.createObjectStore('s');q.onsuccess=()=>ok(q.result);q.onerror=()=>no(q.error)})}
+async function put(v){let d=await db();return new Promise((ok,no)=>{let t=d.transaction('s','readwrite');t.objectStore('s').put(v,'last');t.oncomplete=ok;t.onerror=()=>no(t.error)})}
+async function get(){let d=await db();return new Promise((ok,no)=>{let q=d.transaction('s').objectStore('s').get('last');q.onsuccess=()=>ok(q.result);q.onerror=()=>no(q.error)})}
+function shader(type,src){let s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(s));return s}
+const vs='attribute vec2 p;varying vec2 uv;void main(){uv=vec2((p.x+1.)*.5,1.-(p.y+1.)*.5);gl_Position=vec4(p,0,1);}';
+const fs=`precision highp float;
+varying vec2 uv;
+uniform sampler2D im,ctl;
+uniform float flashEV,flashHighlights,flashWhites,specular,hardness;
+uniform float edgeBlend,edgeShift,falloff,flashTemp,flashTint,flashSaturation,flashContrast;
+uniform float exposure,contrast,highlights,shadows,whites,blacks,temperature,tint,saturation,hue;
+uniform float showMask,bypassAll;
+
+float lum(vec3 c){return dot(c,vec3(0.2126,0.7152,0.0722));}
+vec3 satAdjust(vec3 c,float s){float y=lum(c);return mix(vec3(y),c,s);}
+vec3 tempTint(vec3 c,float t,float ti){
+ c*=vec3(1.0+0.10*t+0.035*ti,1.0-0.045*ti,1.0-0.10*t+0.020*ti);
+ return c;
+}
+vec3 hueRotate(vec3 c,float h){
+ float Y=dot(c,vec3(.299,.587,.114));
+ float I=dot(c,vec3(.596,-.275,-.321));
+ float Q=dot(c,vec3(.212,-.523,.311));
+ float a=h*1.5707963,cs=cos(a),sn=sin(a),I2=I*cs-Q*sn,Q2=I*sn+Q*cs;
+ return vec3(Y+.956*I2+.621*Q2,Y-.272*I2-.647*Q2,Y-1.106*I2+1.703*Q2);
+}
+vec3 tone(vec3 c,float hi,float sh,float wh,float bl){
+ float y=max(lum(c),0.0001);
+ float hiM=smoothstep(.48,.95,y),shM=1.0-smoothstep(.05,.52,y);
+ float whM=smoothstep(.72,1.0,y),blM=1.0-smoothstep(0.0,.28,y);
+ float y2=max(0.0,y + hi*hiM*.34 + sh*shM*.28 + wh*whM*.24 + bl*blM*.20);
+ return c*(y2/y);
+}
+vec3 shoulder(vec3 c){
+ float y=max(lum(c),0.0001);
+ float y2=y;
+ if(y>.72){float x=y-.72;y2=.72+x/(1.0+x*1.45);}
+ return c*(y2/y);
+}
+void main(){
+ vec3 source=texture2D(im,uv).rgb;
+ if(bypassAll>.5){gl_FragColor=vec4(source,1.0);return;}
+ vec4 m=texture2D(ctl,uv);
+ float raw=m.r,soft=m.g,facing=m.b,spec=m.a;
+
+ float M=mix(raw,soft,clamp(edgeBlend,0.0,1.0));
+ float width=mix(.16,.42,edgeBlend);
+ M=smoothstep(clamp(.5+edgeShift*.38-width,0.0,.98),clamp(.5+edgeShift*.38+width,.02,1.0),M);
+ M=mix(M,pow(max(M,0.0001),mix(.45,2.2,falloff)),falloff*.75);
+
+ if(showMask>.5){gl_FragColor=vec4(vec3(M),1.0);return;}
+
+ vec3 col=source*exp2(exposure);
+ col=tone(col,highlights,shadows,whites,blacks);
+ col=(col-vec3(.5))*contrast+vec3(.5);
+ col=tempTint(col,temperature,tint);
+ col=satAdjust(col,saturation);
+ col=hueRotate(col,hue);
+
+ float faceMix=mix(1.0,mix(.58,1.0,facing),hardness);
+ float ev=max(0.0,flashEV)*M*faceMix;
+ vec3 flashed=col*exp2(ev);
+
+ float fy=max(lum(flashed),0.0001);
+ float hiM=smoothstep(.45,.92,fy),whM=smoothstep(.72,1.0,fy);
+ float fy2=max(0.0,fy + flashHighlights*hiM*M*.30 + flashWhites*whM*M*.24);
+ flashed*=fy2/fy;
+
+ flashed=(flashed-vec3(.5))*mix(1.0,flashContrast,M)+vec3(.5);
+ vec3 flashColored=tempTint(flashed,flashTemp*M,flashTint*M);
+ flashColored=satAdjust(flashColored,mix(1.0,flashSaturation,M));
+ col=mix(col,flashColored,M);
+
+ // Only specular reflection is additive.
+ float specAmt=specular*spec*M*(.30+.70*faceMix);
+ col+=vec3(max(0.0,specAmt));
+
+ col=shoulder(max(col,vec3(0.0)));
+ gl_FragColor=vec4(clamp(col,0.0,1.0),1.0);
+}`;
+let pr=gl.createProgram();gl.attachShader(pr,shader(gl.VERTEX_SHADER,vs));gl.attachShader(pr,shader(gl.FRAGMENT_SHADER,fs));gl.linkProgram(pr);gl.useProgram(pr);const U={im:gl.getUniformLocation(pr,'im'),ctl:gl.getUniformLocation(pr,'ctl'),showMask:gl.getUniformLocation(pr,'showMask'),bypassAll:gl.getUniformLocation(pr,'bypassAll')};for(const k of Object.keys(vals))U[k]=gl.getUniformLocation(pr,k);let b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);let p=gl.getAttribLocation(pr,'p');gl.enableVertexAttribArray(p);gl.vertexAttribPointer(p,2,gl.FLOAT,false,0,0);
+function texture(unit,w,h,data){let t=gl.createTexture();gl.activeTexture(gl.TEXTURE0+unit);gl.bindTexture(gl.TEXTURE_2D,t);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);if(data instanceof ImageBitmap)gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,data);else gl.texImage2D(gl.TEXTURE_2D,0,gl.LUMINANCE,w,h,0,gl.LUMINANCE,gl.UNSIGNED_BYTE,data);return t}
+function controlTexture(w,h,data){
+ let t=gl.createTexture();gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,t);
+ gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+ gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+ gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+ gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+ gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);
+ gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,data);
+ return t;
+}
+function smoothstep(a,b,x){x=Math.max(0,Math.min(1,(x-a)/(b-a)));return x*x*(3-2*x)}
+function makeControlMap(rgb,cw,ch,depth,dw,dh){
+ const out=new Uint8Array(cw*ch*4),rawMask=new Float32Array(cw*ch),facingBuf=new Float32Array(cw*ch),specBuf=new Float32Array(cw*ch);
+ const dn=(x,y)=>{const sx=Math.max(0,Math.min(dw-1,Math.round(x*(dw-1)/Math.max(1,cw-1)))),sy=Math.max(0,Math.min(dh-1,Math.round(y*(dh-1)/Math.max(1,ch-1))));return depth[sy*dw+sx]/255};
+ const dl=(x,y)=>{const fx=x*(dw-1)/Math.max(1,cw-1),fy=y*(dh-1)/Math.max(1,ch-1),x0=Math.floor(fx),y0=Math.floor(fy),x1=Math.min(dw-1,x0+1),y1=Math.min(dh-1,y0+1),tx=fx-x0,ty=fy-y0;return ((depth[y0*dw+x0]/255)*(1-tx)+(depth[y0*dw+x1]/255)*tx)*(1-ty)+((depth[y1*dw+x0]/255)*(1-tx)+(depth[y1*dw+x1]/255)*tx)*ty};
+ for(let y=0;y<ch;y++)for(let x=0;x<cw;x++){
+  const idx=y*cw+x,i=idx*4,xm=Math.max(0,x-1),xp=Math.min(cw-1,x+1),ym=Math.max(0,y-1),yp=Math.min(ch-1,y+1);
+  const d=dl(x,y),gx=dn(xp,y)-dn(xm,y),gy=dn(x,yp)-dn(x,ym);
+  const mask=smoothstep(.08,.92,d),face=1/Math.sqrt(1+22*(gx*gx+gy*gy));
+  const r=rgb[i]/255,g=rgb[i+1]/255,b=rgb[i+2]/255,L=.2126*r+.7152*g+.0722*b,chrom=Math.max(r,g,b)-Math.min(r,g,b);
+  rawMask[idx]=mask;facingBuf[idx]=face;specBuf[idx]=Math.pow(Math.max(0,(L-.52)/.48),3)*(1-.55*chrom)*face;
+ }
+ let src=rawMask,dst=new Float32Array(cw*ch);
+ for(let pass=0;pass<5;pass++){
+  for(let y=0;y<ch;y++)for(let x=0;x<cw;x++){
+   const i=y*cw+x,xm=Math.max(0,x-1),xp=Math.min(cw-1,x+1),ym=Math.max(0,y-1),yp=Math.min(ch-1,y+1);
+   dst[i]=src[i]*.20+src[y*cw+xm]*.20+src[y*cw+xp]*.20+src[ym*cw+x]*.20+src[yp*cw+x]*.20;
+  }
+  if(pass<4){const t=src;src=dst;dst=t===rawMask?new Float32Array(cw*ch):t;}
+ }
+ for(let i=0;i<cw*ch;i++){out[i*4]=Math.round(rawMask[i]*255);out[i*4+1]=Math.round(dst[i]*255);out[i*4+2]=Math.round(facingBuf[i]*255);out[i*4+3]=Math.round(Math.max(0,Math.min(1,specBuf[i]))*255);}
+ return out;
+}
+function render(){
+ raf=0;if(!texImg||!texCtl)return;
+ gl.viewport(0,0,c.width,c.height);gl.useProgram(pr);
+ gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,texImg);
+ gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,texCtl);
+ gl.uniform1i(U.im,0);gl.uniform1i(U.ctl,1);
+ for(const k in vals)gl.uniform1f(U[k],vals[k]);
+ gl.uniform1f(U.showMask,maskPreview?1:0);gl.uniform1f(U.bypassAll,beforeHeld?1:0);
+ gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+}
+function queueRender(){
+ if(raf)return;
+ const tick=(ts)=>{
+   if(dragging&&ts-lastFrame<32){raf=requestAnimationFrame(tick);return}
+   lastFrame=ts;raf=0;render();
+ };
+ raf=requestAnimationFrame(tick);
+}
+function setRenderScale(scale){
+ if(!fullW||!fullH)return;
+ const w=Math.max(320,Math.round(fullW*scale)),h=Math.max(240,Math.round(fullH*scale));
+ if(c.width!==w||c.height!==h){c.width=w;c.height=h;queueRender()}
+}
+function applyValues(next){
+ Object.assign(vals,next);
+ for(const [k] of controls){const sl=$('s_'+k),tx=$('v_'+k);if(sl)sl.value=vals[k];if(tx)tx.textContent=vals[k].toFixed(2)}
+ queueRender();
+}
+function fmt(k,v,unit){if(unit==='EV')return (v>0?'+':'')+v.toFixed(2)+' EV';if(['edgeBlend','falloff','hardness'].includes(k))return Math.round(v*100);if(k==='edgeShift')return (v>0?'+':'')+Math.round(v*100);return (v>0?'+':'')+v.toFixed(2)}
+function currentControls(){if(activeTab==='EDIT')return groups[editSub==='LIGHT'?'LIGHT':'GENERALCOLOR'];return groups[activeTab]}
+function buildRows(box){
+ for(const [k,n,min,max,unit] of currentControls()){
+  const r=document.createElement('div');r.className='row';
+  r.innerHTML=`<div class="lab"><span class="name">${n}</span><button class="valBtn" id="v_${k}">${fmt(k,vals[k],unit)}</button></div><input id="s_${k}" type="range" min="${min}" max="${max}" step=".01" value="${vals[k]}">`;
+  const sl=r.querySelector('input'),vb=r.querySelector('.valBtn');
+  sl.onpointerdown=()=>{dragging=true;setRenderScale(.45)};
+  const finish=()=>{if(dragging){dragging=false;setRenderScale(1)}};sl.onpointerup=finish;sl.onpointercancel=finish;sl.onchange=finish;
+  sl.oninput=()=>{vals[k]=+sl.value;vb.textContent=fmt(k,vals[k],unit);queueRender()};
+  vb.onclick=()=>{vals[k]=original[k];sl.value=vals[k];vb.textContent=fmt(k,vals[k],unit);queueRender()};
+  box.appendChild(r);
+ }
+}
+function ui(){
+ const q=$('panel');q.classList.remove('hide');q.innerHTML='';
+ const tabs=document.createElement('div');tabs.className='tabs';
+ for(const t of ['FLASH','MASK','COLOR','EDIT']){const b=document.createElement('button');b.className='tab '+(activeTab===t?'on':'');b.textContent=t;b.onclick=()=>{activeTab=t;ui()};tabs.appendChild(b)}q.appendChild(tabs);
+ if(activeTab==='EDIT'){const sub=document.createElement('div');sub.className='subtabs';sub.innerHTML=`<button class="${editSub==='LIGHT'?'on':''}">LIGHT</button><button class="${editSub==='COLOR'?'on':''}">COLOR</button>`;const bs=sub.querySelectorAll('button');bs[0].onclick=()=>{editSub='LIGHT';ui()};bs[1].onclick=()=>{editSub='COLOR';ui()};q.appendChild(sub)}
+ if(activeTab==='MASK'){const m=document.createElement('button');m.className='maskBtn '+(maskPreview?'on':'');m.textContent=maskPreview?'마스크 보기 ON':'마스크 보기';m.onclick=()=>{maskPreview=!maskPreview;ui();queueRender()};q.appendChild(m)}
+ const rows=document.createElement('div');rows.className='rows';q.appendChild(rows);buildRows(rows);
+}
+async function restore(){
+ document.body.classList.add('editing');
+ let q=await get();if(!q){document.body.classList.remove('editing');return false;}
+ originalBlob=q.original||q.blob;
+ const depth=new Uint8Array(q.depth),dw=q.dw,dh=q.dh;
+ const sourceW=q.ow||q.w,sourceH=q.oh||q.h;
+
+ // One-time 512px control-map preprocessing after AI has already been unloaded/reloaded.
+ const maxCtl=512,cs=Math.min(1,maxCtl/Math.max(sourceW,sourceH));
+ controlW=Math.max(96,Math.round(sourceW*cs));controlH=Math.max(96,Math.round(sourceH*cs));
+ $('status').textContent='경계 보호용 Control Map 준비 중…';
+ let edgeBm=await createImageBitmap(originalBlob,{resizeWidth:controlW,resizeHeight:controlH,resizeQuality:'high'});
+ let ec=document.createElement('canvas');ec.width=controlW;ec.height=controlH;
+ let ex=ec.getContext('2d',{alpha:false,willReadFrequently:true});ex.drawImage(edgeBm,0,0,controlW,controlH);edgeBm.close();
+ let rgb=ex.getImageData(0,0,controlW,controlH).data;
+ let ctl=makeControlMap(rgb,controlW,controlH,depth,dw,dh);
+ ec.width=ec.height=1;ec=null;rgb=null;
+ texCtl=controlTexture(controlW,controlH,ctl);ctl=null;
+
+ // High-quality edit preview is created only after control-map preprocessing.
+ const maxPreviewPixels=4000000;
+ const sc=Math.min(1,Math.sqrt(maxPreviewPixels/(sourceW*sourceH)));
+ const rw=Math.max(1,Math.round(sourceW*sc)),rh=Math.max(1,Math.round(sourceH*sc));
+ $('status').textContent='고화질 미리보기 준비 중…';
+ let bm=null;
+ try{
+   bm=await createImageBitmap(originalBlob,{resizeWidth:rw,resizeHeight:rh,resizeQuality:'high'});
+ }catch(_e){
+   const full=await createImageBitmap(originalBlob);
+   let tc=document.createElement('canvas');tc.width=rw;tc.height=rh;
+   tc.getContext('2d',{alpha:false}).drawImage(full,0,0,rw,rh);full.close();
+   const tb=await new Promise((ok,no)=>tc.toBlob(v=>v?ok(v):no(Error('preview 생성 실패')),'image/png'));
+   tc.width=tc.height=1;tc=null;bm=await createImageBitmap(tb);
+ }
+ fullW=rw;fullH=rh;c.width=fullW;c.height=fullH;
+ const e=$('empty');if(e)e.remove();
+ texImg=texture(0,rw,rh,bm);bm.close();
+ $('save').hidden=false;$('compare').hidden=false;$('pick').textContent='다른 사진 선택';
+ $('status').textContent=`편집 ${rw}×${rh}px · 사진을 보면서 아래 슬라이더를 조절하세요`;
+ ui();render();return true;
+}
+async function analyze(file){
+ $('status').textContent='사진을 작게 준비하는 중…';
+ let bm=await createImageBitmap(file),ow=bm.width,oh=bm.height;
+ let ds=Math.min(1,320/Math.max(ow,oh)),iw=Math.max(80,Math.round(ow*ds)),ih=Math.max(80,Math.round(oh*ds));
+ let dc=document.createElement('canvas');dc.width=iw;dc.height=ih;dc.getContext('2d',{alpha:false}).drawImage(bm,0,0,iw,ih);
+ let depthURL=dc.toDataURL('image/jpeg',.84);
+ // Release the full photo and both canvas backing stores BEFORE loading the model.
+ bm.close();bm=null;dc.width=dc.height=1;dc=null;
+ $('status').textContent='Depth 모델 준비 중…';
+ let mod=await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.7.2');mod.env.allowLocalModels=false;
+ let pipe=await mod.pipeline('depth-estimation','onnx-community/depth-anything-v2-small',{dtype:'q4',device:'wasm'});
+ $('status').textContent='320px Depth 분석 중…';
+ let input=await mod.RawImage.fromURL(depthURL);depthURL=null;
+ let r=await pipe(input),dep=r.predicted_depth||r.depth;
+ if(!dep||!dep.data)throw Error('Depth output 없음');
+ let raw=dep.data,dims=dep.dims||[],dw=dims[dims.length-1]||iw,dh=dims[dims.length-2]||ih,min=Infinity,max=-Infinity;
+ for(let i=0;i<raw.length;i++){let v=raw[i];if(v<min)min=v;if(v>max)max=v}
+ let d=new Uint8Array(raw.length),range=max-min||1;
+ for(let i=0;i<raw.length;i++)d[i]=Math.max(0,Math.min(255,Math.round((raw[i]-min)/range*255)));
+ dep=null;r=null;input=null;raw=null;
+ try{await pipe.dispose?.()}catch(_e){} pipe=null;mod=null;
+ $('status').textContent='Depth 완료 · 편집 화면으로 전환 중…';
+ await put({original:file,ow,oh,dw,dh,depth:d.buffer});
+ location.replace(location.pathname+'?edit=1&v=60');
+}
+async function savePhoto(){
+ const btn=$('save'),old=btn.textContent,oldTex=texImg,oldW=c.width,oldH=c.height;
+ let exportTex=null,bm=null;
+ try{
+  btn.disabled=true;btn.textContent='고화질 사진 만드는 중…';
+  if(raf){cancelAnimationFrame(raf);raf=0}
+  const session=await get();const source=originalBlob||session?.original||session?.blob;
+  if(!source)throw Error('원본 파일을 찾지 못했습니다');
+  bm=await createImageBitmap(source);
+  const maxExportPixels=12500000;
+  const sourceW=bm.width,sourceH=bm.height;const sc=Math.min(1,Math.sqrt(maxExportPixels/(sourceW*sourceH)));
+  const ew=Math.max(1,Math.round(sourceW*sc)),eh=Math.max(1,Math.round(sourceH*sc));
+  c.width=ew;c.height=eh;
+  exportTex=texture(0,ew,eh,bm);texImg=exportTex;
+  render();
+  const blob=await new Promise((ok,no)=>c.toBlob(v=>v?ok(v):no(Error('JPEG 저장 실패')),'image/jpeg',.98));
+  const name='FlashLook-'+new Date().toISOString().replace(/[:.]/g,'-')+'.jpg';
+  const file=new File([blob],name,{type:'image/jpeg'});
+  if(navigator.canShare&&navigator.canShare({files:[file]})){
+   try{
+    await navigator.share({files:[file],title:'FlashLook'});
+    $('status').textContent=`고화질 결과 ${ew}×${eh}px 생성 완료`+(sc<1?` · 원본 ${sourceW}×${sourceH}px에서 12.5MP 안전 제한 적용`:' · 원본 픽셀 크기 유지');
+    return;
+   }catch(e){if(e&&e.name==='AbortError')return}
+  }
+  const url=URL.createObjectURL(blob),link=document.createElement('a');
+  link.href=url;link.download=name;document.body.appendChild(link);link.click();link.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),5000);
+  $('status').textContent=`JPEG ${ew}×${eh}px 저장 시작`+(sc<1?` · 원본 ${sourceW}×${sourceH}px`:' · 원본 픽셀 크기 유지');
+ }catch(e){
+  console.error(e);$('status').textContent='저장 실패: '+e.message;
+ }finally{
+  if(bm)bm.close();
+  if(exportTex)gl.deleteTexture(exportTex);
+  texImg=oldTex;c.width=oldW;c.height=oldH;render();
+  btn.disabled=false;btn.textContent=old;
+ }
+}
+$('save').onclick=savePhoto;
+const cmp=$('compare');
+const showBefore=()=>{beforeHeld=true;queueRender()},showAfter=()=>{beforeHeld=false;queueRender()};
+cmp.onpointerdown=e=>{e.preventDefault();showBefore()};cmp.onpointerup=showAfter;cmp.onpointercancel=showAfter;cmp.onpointerleave=showAfter;
+$('pick').onclick=()=>$('file').click();$('file').onchange=async e=>{try{await analyze(e.target.files[0])}catch(err){$('status').textContent='분석 실패: '+err.message;console.error(err)}};
+if(new URLSearchParams(location.search).get('edit')==='1')restore();
+</script></body></html>
